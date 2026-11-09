@@ -6,6 +6,8 @@
 # clock = "12h"                  # "12h" or "24h"
 # units = "fahrenheit"           # "fahrenheit" or "celsius"
 # location_name = "Astoria"      # weather card label (default: looked up from the zip)
+# rotate = "auto"                # degrees clockwise; "auto" turns a portrait HyperPixel 4.0
+                                 # to landscape — use 270 if it's upside down
 
 [weather]
 # zip = "11106"                  # any US zip code
@@ -34,6 +36,18 @@
 # title = "Morning commute"      # departures card title (default: the station names)
 # max_rows = 5                   # total rows across both directions
 # refresh_seconds = 30
+
+[buttons]
+# Pimoroni Button SHIM (used with the HyperPixel 4.0)
+# enabled = true
+# i2c_bus = "auto"               # or a bus number, e.g. 3
+# led_brightness = 0.15          # status LED: green ok · amber trouble · blue planned · red severe/offline
+# Actions: overview, forecast, alerts, next_page, prev_page, next_alert, refresh, sleep
+# a = "overview"
+# b = "forecast"
+# c = "alerts"
+# d = "refresh"
+# e = "sleep"
 
 [alerts]
 # subway = true                  # MTA delays, suspensions and planned work on your lines

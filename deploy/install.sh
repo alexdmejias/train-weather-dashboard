@@ -19,12 +19,13 @@ fi
 
 echo "→ Installing packages"
 sudo apt-get update -qq
-sudo apt-get install -y python3-pygame python3-requests python3-protobuf python3-pip git
+sudo apt-get install -y python3-pygame python3-requests python3-protobuf python3-pip git \
+  python3-smbus i2c-tools   # Button SHIM
 # MTA real-time feeds are protobuf; this is just the generated schema module
 sudo pip3 install --break-system-packages --no-deps gtfs-realtime-bindings
 
-echo "→ Adding $USER_NAME to the video/render/input groups (display + touch access)"
-sudo usermod -aG video,render,input "$USER_NAME"
+echo "→ Adding $USER_NAME to the video/render/input/i2c groups (display, touch, buttons)"
+sudo usermod -aG video,render,input,i2c "$USER_NAME"
 
 echo "→ Installing systemd service"
 sed -e "s|__USER__|$USER_NAME|g" -e "s|__DIR__|$DIR|g" "$DIR/deploy/dashboard.service" \
@@ -46,7 +47,9 @@ echo
 echo "Done. Next:"
 echo "  • it runs with the defaults (11106, Steinway St + Broadway)"
 echo "  • to customise: cp config.example.toml config.toml, edit, sudo systemctl restart dashboard"
-echo "  • add the screen settings from deploy/config.txt.snippet to /boot/firmware/config.txt and reboot"
+echo "  • add your screen's settings to /boot/firmware/config.txt and reboot:"
+echo "      Elecrow 5\" HDMI:     deploy/config.txt.snippet"
+echo "      HyperPixel 4.0:       deploy/hyperpixel4.config.txt.snippet"
 echo "  • logs:    journalctl -u dashboard -f"
 echo "  • restart: sudo systemctl restart dashboard"
 [ "$AUTO_UPDATE" = 1 ] && echo "  • updates: journalctl -u dashboard-update  (force a check: sudo systemctl start dashboard-update)"

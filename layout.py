@@ -44,6 +44,20 @@ def draw(screen: pygame.Surface, state) -> None:
         wx = split + T.GAP
         _weather(screen, pygame.Rect(wx, body.y, body.right - wx, body.h), state)
     _page_dots(screen, state.page % len(names), len(names))
+    if getattr(state, "toast", None):
+        _toast(screen, state.toast[0])
+
+
+def _toast(screen, msg):
+    """Brief confirmation of a button press, bottom centre."""
+    t = _text(msg, "semibold", 16, T.TEXT)
+    w, h = t.get_width() + 36, 40
+    r = pygame.Rect((T.W - w) // 2, T.H - 74, w, h)
+    shadow = _panel(w + 12, h + 12, h // 2 + 6, (0, 0, 0))
+    shadow.set_alpha(110)
+    screen.blit(shadow, (r.x - 6, r.y - 2))
+    screen.blit(_panel(w, h, h // 2, (44, 52, 70), (70, 80, 102)), r)
+    screen.blit(t, t.get_rect(center=r.center))
 
 
 def _alerts(state):

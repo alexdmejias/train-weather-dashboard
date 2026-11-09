@@ -43,7 +43,7 @@ SHOTS = [
 ]
 
 
-def render(scenario, page, hm, out: Path, scale=1, offline=False):
+def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None):
     now = datetime.now().astimezone().replace(hour=hm[0], minute=hm[1], second=0, microsecond=0)
     state = State(
         now=now, station="Steinway St & Broadway", location="Astoria", multi_station=True,
@@ -52,6 +52,8 @@ def render(scenario, page, hm, out: Path, scale=1, offline=False):
         subway_alerts=mock.subway_alerts(now, scenario), weather_alerts=mock.weather_alerts(now, scenario),
         updated={"trains": now - timedelta(seconds=20), "weather": now - timedelta(minutes=4)},
     )
+    if toast:
+        state.toast = (toast, 0)
     if offline:
         state.errors["trains"] = "timeout"
         state.updated["trains"] = now - timedelta(minutes=6)
@@ -70,6 +72,7 @@ def main():
     ap.add_argument("--page", type=int, default=0)
     ap.add_argument("--time", default="08:42")
     ap.add_argument("--offline", action="store_true")
+    ap.add_argument("--toast", help="show a button-press confirmation, e.g. 'B · Forecast'")
     ap.add_argument("--scale", type=int, default=1)
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
@@ -77,7 +80,7 @@ def main():
     if args.scenario:
         hm = tuple(int(x) for x in args.time.split(":"))
         out = args.out or ROOT / "docs" / "screenshots" / f"{args.scenario}-{args.page}.png"
-        render(args.scenario, args.page, hm, out, args.scale, args.offline)
+        render(args.scenario, args.page, hm, out, args.scale, args.offline, args.toast)
     else:
         outdir = args.out or ROOT / "docs" / "screenshots"
         for scenario, page, hm, name in SHOTS:

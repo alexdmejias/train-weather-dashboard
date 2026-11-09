@@ -27,6 +27,10 @@ DEFAULTS: dict = {
         "clock": "12h",               # "12h" or "24h"
         "units": "fahrenheit",        # "fahrenheit" or "celsius"
         "location_name": None,        # weather card label; default: neighbourhood of the zip
+        # Screen rotation in degrees clockwise, or "auto": portrait panels such
+        # as the HyperPixel 4.0 (480×800) get turned to landscape automatically.
+        # Use 270 if your HyperPixel shows upside down.
+        "rotate": "auto",
     },
     "weather": {
         "zip": "11106",               # US zip code …
@@ -48,6 +52,19 @@ DEFAULTS: dict = {
         "title": None,                # departures card title; default: the station names
         "max_rows": 5,
         "refresh_seconds": 30,
+    },
+    "buttons": {
+        # Pimoroni Button SHIM. true = use it on the Pi if one is found.
+        "enabled": True,
+        "i2c_bus": "auto",            # or a number, e.g. 3 — see README for HyperPixel wiring
+        "led_brightness": 0.15,       # status LED: green ok · amber line trouble · red severe/offline
+        # What each button does: overview, forecast, alerts, next_page,
+        # prev_page, next_alert, refresh, sleep
+        "a": "overview",
+        "b": "forecast",
+        "c": "alerts",
+        "d": "refresh",
+        "e": "sleep",
     },
     "alerts": {
         "subway": True,               # MTA delays, suspensions and planned work on your lines
