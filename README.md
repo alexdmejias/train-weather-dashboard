@@ -147,6 +147,15 @@ python3 tools/render.py --scenario rain --page 1 --scale 2 --out /tmp/x.png
    `~/train-weather-dashboard/config.toml` on the Pi, then
    `sudo systemctl restart dashboard`.
 
+## Automatic updates (optional)
+
+CI tests every push. Once the default branch passes, CI moves a `deploy`
+branch to that commit, and a timer on the Pi pulls it within ~5 min. If the
+new version crash-loops, the Pi rolls back on its own. This needs the Pi
+folder to be a `git clone`. Then run `bash deploy/install.sh --auto-update`.
+Trade-offs, alternatives and setup steps are in
+[`docs/remote-updates.md`](docs/remote-updates.md).
+
 ## Iterate on the real screen
 
 ```bash
@@ -202,7 +211,8 @@ sources/            Open-Meteo weather, MTA subway + alerts, NWS alerts, mock da
 data/subway.json    station + line table built from the MTA static GTFS
 tools/render.py     headless PNG renderer
 tools/find_station.py   look up station ids
-deploy/             systemd unit, installer, display config
+deploy/             systemd units, installer, auto-updater, display config
+.github/workflows/  CI: tests + headless render, promotes green builds to `deploy`
 sync.sh             watch & push to the Pi
 config.example.toml every option, commented out
 ```

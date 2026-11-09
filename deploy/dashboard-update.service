@@ -1,0 +1,11 @@
+[Unit]
+Description=Update the train & weather dashboard from GitHub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# install.sh fills in USER and DIR
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=/bin/bash __DIR__/deploy/update.sh
