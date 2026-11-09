@@ -1,7 +1,10 @@
 # Train & Weather Dashboard
 
 A glanceable NYC Subway departures + weather display for a Raspberry Pi
-Zero W and an 800×480 touchscreen (built for the Elecrow 5" HDMI panel).
+Zero W and an 800×480 screen. Works with either:
+
+- **Elecrow 5" HDMI touchscreen** — tap to switch pages, or
+- **Pimoroni HyperPixel 4.0** (rectangular, non-touch) + **Button SHIM** for input.
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -120,7 +123,39 @@ python3 dashboard.py --fullscreen              # fill the screen instead of an 8
 window open and tweak the design live. A layout bug shows an error screen
 instead of crashing; fix it and save again.
 
-Keys: `←`/`→` or click switches page · `R` refreshes data · `Q` quits.
+**Screens advance on their own every 30 s** (Departures → Forecast → Alerts,
+when there are any). Press **Space** to move on immediately — that also
+restarts the timer. The tabs along the bottom show which screen is up and how
+long until the next one. Change the interval with `[display] page_seconds`
+(`0` turns auto-advance off).
+
+Other keys: `R` refreshes data · `Q` quits.
+
+### Keys, macro pads, knobs and remotes
+
+Every key is configurable under `[keys]` in `config.toml`, so any USB
+keyboard, macro pad, volume knob or Bluetooth remote can drive the dashboard
+without reprogramming it. Defaults:
+
+| Key(s) | Action |
+|---|---|
+| Space, →, Page Down, Volume up, Next track | Next screen |
+| ←, Page Up, Volume down, Previous track | Previous screen |
+| Enter, R, Play/Pause | Refresh |
+| Mute | Sleep / wake |
+| 1–5 | Same as Button SHIM A–E |
+| Q, Esc | Quit |
+
+Combos work too — handy for macro pads that ship sending copy/paste:
+
+```toml
+[keys]
+"ctrl+c" = "next_page"
+"ctrl+v" = "refresh"
+```
+
+To find what a device sends, run `python3 dashboard.py --show-keys` and press
+it; on the Pi, unmapped keys are logged (`journalctl -u dashboard -f`).
 
 Render PNGs without a screen (used for the images above):
 
@@ -133,9 +168,11 @@ python3 tools/render.py --scenario rain --page 1 --scale 2 --out /tmp/x.png
 
 1. Flash **Raspberry Pi OS Lite (32-bit)** with Raspberry Pi Imager; set
    Wi-Fi, hostname (`pizero`) and SSH in the Imager settings.
-2. Add the screen settings from [`deploy/config.txt.snippet`](deploy/config.txt.snippet)
-   to `/boot/firmware/config.txt` and reboot. (Touch needs a soldered GPIO
-   header on a non-"WH" Zero W.)
+2. Add your screen's settings to `/boot/firmware/config.txt` and reboot:
+   [`deploy/config.txt.snippet`](deploy/config.txt.snippet) for the Elecrow
+   (touch needs a soldered GPIO header on a non-"WH" Zero W), or
+   [`deploy/hyperpixel4.config.txt.snippet`](deploy/hyperpixel4.config.txt.snippet)
+   for the HyperPixel (see below).
 3. Copy the project over and install:
 
    ```bash
@@ -155,6 +192,52 @@ new version crash-loops, the Pi rolls back on its own. This needs the Pi
 folder to be a `git clone`. Then run `bash deploy/install.sh --auto-update`.
 Trade-offs, alternatives and setup steps are in
 [`docs/remote-updates.md`](docs/remote-updates.md).
+
+## HyperPixel 4.0 + Button SHIM
+
+The HyperPixel plugs straight onto the Pi Zero's GPIO header and uses almost
+every pin, including the normal I2C pins — so the Button SHIM can't sit on
+the header too. Wire it to the HyperPixel's spare 5-pin I2C header instead:
+
+| Button SHIM | HyperPixel 5-pin header |
+|---|---|
+| 3V3 | 3V3 |
+| GND | GND |
+| SDA | BCM 10 |
+| SCL | BCM 11 |
+
+Then add [`deploy/hyperpixel4.config.txt.snippet`](deploy/hyperpixel4.config.txt.snippet)
+to `/boot/firmware/config.txt` (instead of the Elecrow lines) and reboot.
+
+- **Rotation is automatic.** The panel is natively 480×800 portrait; the
+  dashboard detects that and turns its 800×480 layout to fit. If yours is
+  upside down, set `[display] rotate = 270`.
+- **Buttons** (change any of them under `[buttons]` in `config.toml`):
+
+  | Button | Default action |
+  |---|---|
+  | A | Departures |
+  | B | 7-day forecast |
+  | C | Alerts (when there are any) |
+  | D | Refresh now |
+  | E | Sleep — screen and backlight off; any button wakes it |
+
+  Other actions: `next_page`, `prev_page`, `next_alert`. Each press shows a
+  brief confirmation on screen.
+- **Status LED** on the SHIM: green = all good, amber = trouble on your lines
+  or a weather alert, blue = planned work coming up, red = severe weather or
+  the MTA feed is unreachable. Brightness: `[buttons] led_brightness`.
+- The SHIM is found automatically on whichever I2C bus it's on
+  (`[buttons] i2c_bus = "auto"`); the official `buttonshim` library isn't
+  used because it only works on bus 1.
+
+Space works here too (e.g. from a USB keyboard or macro pad). On a laptop,
+keys **1–5** act as buttons A–E, and `--portrait` opens a
+480×800 window to preview the rotation.
+
+| Button press confirmation | What's sent to the portrait panel |
+|---|---|
+| ![](docs/screenshots/button-press.png) | <img src="docs/screenshots/hyperpixel-framebuffer.png" width="240"> |
 
 ## Iterate on the real screen
 
@@ -208,6 +291,7 @@ theme.py            colours, fonts, spacing               (hot-reloaded)
 icons.py            weather icons drawn in code           (hot-reloaded)
 config.py           settings + defaults (config.toml overrides)
 sources/            Open-Meteo weather, MTA subway + alerts, NWS alerts, mock data
+hardware/           Button SHIM driver, screen rotation/scaling + backlight
 data/subway.json    station + line table built from the MTA static GTFS
 tools/render.py     headless PNG renderer
 tools/find_station.py   look up station ids

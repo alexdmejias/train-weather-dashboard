@@ -6,6 +6,10 @@
 # clock = "12h"                  # "12h" or "24h"
 # units = "fahrenheit"           # "fahrenheit" or "celsius"
 # location_name = "Astoria"      # weather card label (default: looked up from the zip)
+# rotate = "auto"                # degrees clockwise; "auto" turns a portrait HyperPixel 4.0
+                                 # to landscape — use 270 if it's upside down
+# page_seconds = 30              # screens advance on their own this often (0 = never);
+                                 # Space moves on immediately and restarts the timer
 
 [weather]
 # zip = "11106"                  # any US zip code
@@ -35,11 +39,38 @@
 # max_rows = 5                   # total rows across both directions
 # refresh_seconds = 30
 
+[buttons]
+# Pimoroni Button SHIM (used with the HyperPixel 4.0)
+# enabled = true
+# i2c_bus = "auto"               # or a bus number, e.g. 3
+# led_brightness = 0.15          # status LED: green ok · amber trouble · blue planned · red severe/offline
+# Actions: overview, forecast, alerts, next_page, prev_page, next_alert, refresh, sleep
+# a = "overview"
+# b = "forecast"
+# c = "alerts"
+# d = "refresh"
+# e = "sleep"
+
 [alerts]
 # subway = true                  # MTA delays, suspensions and planned work on your lines
 # weather = true                 # National Weather Service advisories, watches, warnings
 # upcoming_hours = 12            # also show planned work starting within this many hours
 # rotate_seconds = 8             # the header banner cycles through alerts this often
+
+[keys]
+# Keyboard, USB macro pad, knob or Bluetooth remote → action. Only list keys
+# you want to change; the rest keep their defaults (see config.py).
+# Find a key's name: run  python3 dashboard.py --show-keys  and press it
+# (on the Pi: journalctl -u dashboard -f, unmapped keys are logged).
+# Actions: next_page, prev_page, overview, forecast, alerts, next_alert,
+#          refresh, sleep, quit, button_a … button_e, or "" to ignore.
+# space = "next_page"
+# volumeup = "next_page"         # knob turned right
+# volumedown = "prev_page"       # knob turned left
+# audiomute = "sleep"            # knob pressed (many knobs send mute)
+# "ctrl+c" = "next_page"         # a macro pad still on its factory shortcuts
+# "ctrl+v" = "refresh"
+# escape = ""                    # ignore a key
 
 # Section titles ("To Manhattan" / "To Queens") — keep this table last:
 # [subway.direction_labels]

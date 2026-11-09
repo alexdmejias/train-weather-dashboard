@@ -9,7 +9,7 @@ User=__USER__
 WorkingDirectory=__DIR__
 ExecStart=/usr/bin/python3 __DIR__/dashboard.py
 Environment=PYTHONUNBUFFERED=1
-SupplementaryGroups=video render input
+SupplementaryGroups=video render input i2c
 Restart=always
 RestartSec=5
 

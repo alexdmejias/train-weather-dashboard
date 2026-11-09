@@ -1,0 +1,26 @@
+# ── Pimoroni HyperPixel 4.0 (rectangular, non-touch) ──────────────────────
+# Append to /boot/firmware/config.txt (Raspberry Pi OS Bookworm or later).
+#
+# The HyperPixel uses nearly every GPIO pin, so:
+#   • do NOT also use the Elecrow lines (hdmi_*, ads7846, dtparam=spi=on)
+#   • I2C and SPI on the normal pins must be off
+dtparam=i2c_arm=off
+dtparam=spi=off
+dtoverlay=vc4-kms-dpi-hyperpixel4
+
+# ── Button SHIM on the HyperPixel's spare I2C header ──────────────────────
+# The SHIM can't sit on the GPIO header (it needs BCM 2/3, which the display
+# uses). Wire it to the 5-pin header on the back of the HyperPixel instead:
+#   SHIM 3V3 → 3V3 · SHIM GND → GND · SHIM SDA → BCM 10 · SHIM SCL → BCM 11
+# and create an I2C bus on those pins:
+dtoverlay=i2c-gpio,i2c_gpio_sda=10,i2c_gpio_scl=11,bus=3
+#
+# After rebooting, check it's found (address 3f):
+#   i2cdetect -l          # list buses
+#   i2cdetect -y 3        # should show 3f
+# If the HyperPixel overlay already created a bus on GPIO 10/11 (you'll see it
+# in `i2cdetect -l` without the line above), remove the i2c-gpio line — the
+# dashboard searches every bus for the SHIM ([buttons] i2c_bus = "auto").
+#
+# The dashboard turns the portrait panel to landscape by itself
+# ([display] rotate = "auto"); set rotate = 270 if it comes out upside down.

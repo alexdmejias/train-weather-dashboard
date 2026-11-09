@@ -1,3 +1,5 @@
 pygame>=2.1
 requests>=2.28
 gtfs-realtime-bindings>=1.0
+# Button SHIM on the Pi (apt: python3-smbus):
+# smbus2>=0.4

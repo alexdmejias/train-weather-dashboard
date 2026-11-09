@@ -8,9 +8,13 @@ On a Raspberry Pi it draws straight to the display (no desktop needed). On a
 laptop it opens an 800×480 window. layout.py, theme.py and icons.py are
 reloaded automatically when they change, so you can tweak the design live.
 
-Keys (laptop): ←/→ or click = switch page · R = refresh data · Q/Esc = quit
-Touch (Pi): tap = switch page · tap the alert banner = alert details ·
-            it returns to the overview after 30 s
+Space = next screen (screens also advance on their own every 30 s) ·
+               1–5 = Button SHIM A–E · R = refresh data · Q/Esc = quit
+               (all keys are configurable under [keys]; --show-keys prints names)
+Touch (Elecrow): tap = switch page · tap the alert banner = alert details
+Button SHIM (HyperPixel): A departures · B forecast · C alerts · D refresh ·
+               E sleep/wake (configurable in [buttons])
+Any key, button or tap restarts the 30 s timer.
 """
 
 from __future__ import annotations
@@ -38,6 +42,8 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame  # noqa: E402
 
 import config  # noqa: E402
+from hardware.buttonshim import ButtonShim  # noqa: E402
+from hardware.display import Presenter, set_backlight  # noqa: E402
 import icons  # noqa: E402
 import layout  # noqa: E402
 import theme  # noqa: E402
@@ -45,7 +51,7 @@ from sources import alerts as alerts_src, mock, weather as weather_src  # noqa: 
 from sources.trains import mta_subway  # noqa: E402
 
 HOT_MODULES = [theme, icons, layout]   # reload order matters: theme first
-PAGE_TIMEOUT = 30                      # seconds before returning to overview
+BUTTON_EVENT = pygame.USEREVENT + 1
 
 
 @dataclass
@@ -67,6 +73,10 @@ class State:
     updated: dict = field(default_factory=dict)   # source name → datetime of last success
     errors: dict = field(default_factory=dict)    # source name → last error message
     alert_index: int = 0                          # which alert the header banner shows
+    alert_offset: int = 0                         # skipped ahead with a button
+    toast: tuple | None = None                    # (message, hide at monotonic time)
+    asleep: bool = False                          # screen blanked
+    page_progress: float | None = None            # 0–1 until the next auto-advance (None = off)
 
     # convenience views used by the layout
     @property
@@ -226,6 +236,10 @@ def main():
     ap.add_argument("--mock", action="store_true", help="use fake train + weather data")
     ap.add_argument("--scenario", help="mock scenario (implies --mock): normal, evening, rain, night, snow")
     ap.add_argument("--fullscreen", action="store_true", help="force fullscreen (default on the Pi)")
+    ap.add_argument("--show-keys", action="store_true",
+                    help="print the name of every key pressed (to fill in [keys])")
+    ap.add_argument("--portrait", action="store_true",
+                    help="laptop: open a 480×800 window to preview HyperPixel rotation")
     args = ap.parse_args()
 
     cfg = config.load(args.config)
@@ -250,14 +264,28 @@ def main():
 
     pygame.display.init()
     pygame.font.init()
-    flags = pygame.FULLSCREEN if (ON_PI or args.fullscreen) else 0
-    screen = pygame.display.set_mode((theme.W, theme.H), flags)
+    if ON_PI or args.fullscreen:
+        # native resolution: 800×480 on the Elecrow, 480×800 (portrait) on a HyperPixel 4.0
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    else:
+        w, h = (theme.H, theme.W) if args.portrait else (theme.W, theme.H)
+        screen = pygame.display.set_mode((w, h))
     pygame.display.set_caption("Dashboard")
     pygame.mouse.set_visible(not ON_PI)
+    presenter = Presenter(screen, (theme.W, theme.H), disp["rotate"])
+    print(presenter.describe(), flush=True)
 
     fetcher = Fetcher(cfg, state, scenario)
     fetcher.start()
     reloader = Reloader(HOT_MODULES)
+
+    # Button SHIM → pygame events, so buttons and keys share one code path
+    bcfg = cfg["buttons"]
+    shim = None
+    if bcfg["enabled"] and (ON_PI or bcfg["enabled"] == "always"):
+        shim = ButtonShim.connect(
+            lambda name: pygame.event.post(pygame.event.Event(BUTTON_EVENT, button=name)),
+            bcfg["i2c_bus"], bcfg["led_brightness"])
 
     shot = threading.Event()
     running = [True]
@@ -265,72 +293,185 @@ def main():
         signal.signal(signal.SIGUSR1, lambda *_: shot.set())
     signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
 
+    keymap = cfg["keys"]
+    for k, a in keymap.items():
+        if a and a not in KEY_ACTIONS:
+            print(f"[keys] {k!r}: unknown action {a!r} — choose from {', '.join(sorted(KEY_ACTIONS))}", flush=True)
+    reported_keys = set()
+
     clock = pygame.time.Clock()
     drawn = None
-    last_touch = time.monotonic()
+    page_seconds = disp["page_seconds"]       # auto-advance interval; 0 = stay put
+    page_started = time.monotonic()
+
+    def act(action: str, label: str | None = None):
+        """Run a named action (from a button, key or tap)."""
+        nonlocal page_started
+        page_started = time.monotonic()       # any input restarts the auto-advance timer
+        names = layout.pages(state)
+        if state.asleep:            # any input wakes the screen and does nothing else
+            state.asleep = False
+            set_backlight(True)
+            return
+        if action in ("overview", "forecast", "alerts"):
+            if action == "alerts" and "alerts" not in names:
+                state.toast = ("No alerts right now", time.monotonic() + 1.8)
+                return
+            state.page = names.index(action)
+        elif action == "next_page":
+            state.page = (state.page + 1) % len(names)
+        elif action == "prev_page":
+            state.page = (state.page - 1) % len(names)
+        elif action == "next_alert":
+            state.alert_offset += 1
+        elif action == "refresh":
+            fetcher.refresh_now()
+        elif action == "sleep":
+            state.asleep = True
+            set_backlight(False)
+            return
+        if label:
+            state.toast = (label, time.monotonic() + 1.5)
 
     while running[0]:
-        force = False
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running[0] = False
+            elif ev.type == BUTTON_EVENT:
+                action = bcfg[ev.button.lower()]
+                act(action, f"{ev.button} · {ACTION_LABELS.get(action, action)}")
             elif ev.type == pygame.KEYDOWN:
-                if ev.key in (pygame.K_q, pygame.K_ESCAPE):
+                name, action = lookup_key(keymap, ev.key, ev.mod)
+                if action is None:
+                    if args.show_keys or name not in reported_keys:
+                        print(f"[keys] {name!r} isn't mapped — add it under [keys] in config.toml", flush=True)
+                        reported_keys.add(name)
+                elif args.show_keys:
+                    print(f"[keys] {name!r} → {action or '(ignored)'}", flush=True)
+                if not action:
+                    continue
+                if action == "quit":
                     running[0] = False
-                elif ev.key == pygame.K_r:
-                    fetcher.refresh_now()
-                elif ev.key in (pygame.K_RIGHT, pygame.K_LEFT, pygame.K_SPACE):
-                    step = -1 if ev.key == pygame.K_LEFT else 1
-                    state.page = (state.page + step) % len(layout.pages(state))
-                    last_touch, force = time.monotonic(), True
+                elif action.startswith("button_"):          # behave exactly like Button SHIM A–E
+                    pygame.event.post(pygame.event.Event(BUTTON_EVENT, button=action[-1].upper()))
+                else:
+                    act(action, KEY_TOASTS.get(action))
             elif ev.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
                 # touchscreens send both; ignore the synthesized mouse event
                 if ev.type == pygame.MOUSEBUTTONDOWN and getattr(ev, "touch", False):
                     continue
-                if ev.type == pygame.FINGERDOWN:
-                    pos = (ev.x * theme.W, ev.y * theme.H)  # finger coordinates are 0–1
+                if ev.type == pygame.FINGERDOWN:  # finger coordinates are 0–1 of the physical screen
+                    pos = presenter.to_canvas((ev.x * screen.get_width(), ev.y * screen.get_height()))
                 else:
-                    pos = ev.pos
-                names = layout.pages(state)
-                if layout.BANNER_RECT.collidepoint(pos) and "alerts" in names:
-                    state.page = names.index("alerts")      # tap the alert banner → details
+                    pos = presenter.to_canvas(ev.pos)
+                if layout.BANNER_RECT.collidepoint(pos) and "alerts" in layout.pages(state):
+                    act("alerts")            # tap the alert banner → details
                 else:
-                    state.page = (state.page + 1) % len(names)
-                last_touch, force = time.monotonic(), True
+                    act("next_page")
 
-        if state.page and time.monotonic() - last_touch > PAGE_TIMEOUT:
-            state.page, force = 0, True
+        # auto-advance: Departures → Forecast → (Alerts) → Departures …
+        elapsed = time.monotonic() - page_started
+        if page_seconds and not state.asleep and elapsed >= page_seconds:
+            state.page = (state.page + 1) % len(layout.pages(state))
+            page_started, elapsed = time.monotonic(), 0.0
+        state.page_progress = min(1.0, elapsed / page_seconds) if page_seconds else None
+        if state.toast and time.monotonic() > state.toast[1]:
+            state.toast = None
 
-        if reloader.check():
-            force = True
+        reloaded = reloader.check()
 
         now = datetime.now().astimezone()
-        # the header banner cycles through alerts
-        state.alert_index = int(time.time() // max(1, cfg["alerts"]["rotate_seconds"]))
-        n_pages = len(layout.pages(state))
-        if state.page >= n_pages:  # alerts page vanished because the alerts cleared
+        # the header banner cycles through alerts (a button can also skip ahead)
+        state.alert_index = int(time.time() // max(1, cfg["alerts"]["rotate_seconds"])) + state.alert_offset
+        if state.page >= len(layout.pages(state)):  # alerts page vanished because the alerts cleared
             state.page = 0
-        # redraw on data change, page change, reload, banner rotation, or when the minute ticks
+        # redraw on data/page/toast changes, reloads, banner rotation, or when the minute ticks
         rotation = state.alert_index if (state.subway_alerts or state.weather_alerts) else 0
-        key = (state.version, now.strftime("%H:%M"), state.page, rotation)
-        if force or key != drawn:
+        # the countdown bar moves in 2-second steps — cheap enough for a Pi Zero
+        tick = int(elapsed // 2) if page_seconds else 0
+        key = (state.version, now.strftime("%H:%M"), state.page, rotation, state.toast, state.asleep, tick)
+        if reloaded or key != drawn:
             state.now = now
             with state.lock:
-                try:
-                    layout.draw(screen, state)
-                except Exception as e:
-                    _draw_error(screen, e)
-            pygame.display.flip()
+                if state.asleep:
+                    presenter.canvas.fill((0, 0, 0))
+                else:
+                    try:
+                        layout.draw(presenter.canvas, state)
+                    except Exception as e:
+                        _draw_error(presenter.canvas, e)
+            presenter.present()
             drawn = key
+            if shim:
+                shim.set_color((0, 0, 0) if state.asleep else status_color(state))
 
         if shot.is_set():
-            pygame.image.save(screen, "/tmp/dashboard.png")
-            print("saved /tmp/dashboard.png", flush=True)
+            pygame.image.save(presenter.canvas, "/tmp/dashboard.png")
+            pygame.image.save(screen, "/tmp/dashboard-raw.png")   # as sent to the panel
+            print("saved /tmp/dashboard.png (+ dashboard-raw.png)", flush=True)
             shot.clear()
 
         clock.tick(10)
 
+    if shim:
+        shim.set_color((0, 0, 0))
+        time.sleep(0.2)
+    set_backlight(True)
     pygame.quit()
+
+
+KEY_ACTIONS = {"next_page", "prev_page", "overview", "forecast", "alerts", "next_alert",
+               "refresh", "sleep", "quit", "button_a", "button_b", "button_c", "button_d", "button_e"}
+MODIFIER_KEYS = {f"{side}{m}" for side in ("left", "right") for m in ("ctrl", "shift", "alt", "gui")}
+# brief on-screen confirmation for keys whose effect isn't obvious
+KEY_TOASTS = {"refresh": "Refreshing", "next_alert": "Next alert"}
+
+
+def key_name(key: int, mod: int) -> str:
+    """Config-style name for a key press: 'space', 'audionext', 'ctrl+shift+c'."""
+    # SDL's own names (use_compat=False) also cover media keys: "AudioNext", "VolumeUp"
+    base = config.normalize_key(pygame.key.name(key, use_compat=False) or f"key{key}")
+    mods = [m for m, flag in (("ctrl", pygame.KMOD_CTRL), ("alt", pygame.KMOD_ALT),
+                               ("shift", pygame.KMOD_SHIFT), ("meta", pygame.KMOD_META))
+            if mod & flag and base not in (f"left{m}", f"right{m}")]
+    return config.normalize_key("+".join(mods + [base]))
+
+
+def lookup_key(keymap: dict, key: int, mod: int):
+    """(name, action). action is None if unmapped, "" if deliberately ignored.
+
+    An exact match wins ("ctrl+c"); otherwise a plain key still works when a
+    modifier happens to be held ("shift+space" → "space").
+    """
+    name = key_name(key, mod)
+    if name.rsplit("+", 1)[-1] in MODIFIER_KEYS:   # a lone Ctrl/Shift/… press: nothing to do
+        return name, ""
+    if name in keymap:
+        return name, keymap[name]
+    plain = name.rsplit("+", 1)[-1]
+    if plain in keymap and plain != name:
+        return name, keymap[plain]
+    return name, None
+
+
+ACTION_LABELS = {
+    "overview": "Departures", "forecast": "Forecast", "alerts": "Alerts",
+    "next_page": "Next page", "prev_page": "Previous page", "next_alert": "Next alert",
+    "refresh": "Refreshing", "sleep": "Sleep",
+}
+
+
+def status_color(state):
+    """Button SHIM LED: red = severe weather / offline, amber = trouble on your
+    lines, blue = planned work coming up, green = all good."""
+    now = state.now
+    if any(a.level == "severe" and a.active(now) for a in state.weather_alerts) or state.trains_error:
+        return (255, 30, 30)
+    if any(a.active(now) for a in state.subway_alerts) or state.weather_alerts:
+        return (255, 140, 0)
+    if state.subway_alerts:
+        return (40, 100, 255)
+    return (0, 200, 60)
 
 
 def _station_label(entry: str) -> str:
