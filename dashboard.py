@@ -10,6 +10,7 @@ reloaded automatically when they change, so you can tweak the design live.
 
 Space = next screen (screens also advance on their own every 30 s) ·
                1–5 = Button SHIM A–E · R = refresh data · Q/Esc = quit
+               (all keys are configurable under [keys]; --show-keys prints names)
 Touch (Elecrow): tap = switch page · tap the alert banner = alert details
 Button SHIM (HyperPixel): A departures · B forecast · C alerts · D refresh ·
                E sleep/wake (configurable in [buttons])
@@ -235,6 +236,8 @@ def main():
     ap.add_argument("--mock", action="store_true", help="use fake train + weather data")
     ap.add_argument("--scenario", help="mock scenario (implies --mock): normal, evening, rain, night, snow")
     ap.add_argument("--fullscreen", action="store_true", help="force fullscreen (default on the Pi)")
+    ap.add_argument("--show-keys", action="store_true",
+                    help="print the name of every key pressed (to fill in [keys])")
     ap.add_argument("--portrait", action="store_true",
                     help="laptop: open a 480×800 window to preview HyperPixel rotation")
     args = ap.parse_args()
@@ -290,6 +293,12 @@ def main():
         signal.signal(signal.SIGUSR1, lambda *_: shot.set())
     signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
 
+    keymap = cfg["keys"]
+    for k, a in keymap.items():
+        if a and a not in KEY_ACTIONS:
+            print(f"[keys] {k!r}: unknown action {a!r} — choose from {', '.join(sorted(KEY_ACTIONS))}", flush=True)
+    reported_keys = set()
+
     clock = pygame.time.Clock()
     drawn = None
     page_seconds = disp["page_seconds"]       # auto-advance interval; 0 = stay put
@@ -332,18 +341,21 @@ def main():
                 action = bcfg[ev.button.lower()]
                 act(action, f"{ev.button} · {ACTION_LABELS.get(action, action)}")
             elif ev.type == pygame.KEYDOWN:
-                if ev.key in (pygame.K_q, pygame.K_ESCAPE):
+                name, action = lookup_key(keymap, ev.key, ev.mod)
+                if action is None:
+                    if args.show_keys or name not in reported_keys:
+                        print(f"[keys] {name!r} isn't mapped — add it under [keys] in config.toml", flush=True)
+                        reported_keys.add(name)
+                elif args.show_keys:
+                    print(f"[keys] {name!r} → {action or '(ignored)'}", flush=True)
+                if not action:
+                    continue
+                if action == "quit":
                     running[0] = False
-                elif ev.key == pygame.K_r:
-                    act("refresh", "Refreshing")
-                elif ev.key == pygame.K_SPACE:      # the one key: next screen
-                    act("next_page")
-                elif ev.key == pygame.K_RIGHT:
-                    act("next_page")
-                elif ev.key == pygame.K_LEFT:
-                    act("prev_page")
-                elif pygame.K_1 <= ev.key <= pygame.K_5:   # simulate Button SHIM A–E
-                    pygame.event.post(pygame.event.Event(BUTTON_EVENT, button="ABCDE"[ev.key - pygame.K_1]))
+                elif action.startswith("button_"):          # behave exactly like Button SHIM A–E
+                    pygame.event.post(pygame.event.Event(BUTTON_EVENT, button=action[-1].upper()))
+                else:
+                    act(action, KEY_TOASTS.get(action))
             elif ev.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
                 # touchscreens send both; ignore the synthesized mouse event
                 if ev.type == pygame.MOUSEBUTTONDOWN and getattr(ev, "touch", False):
@@ -406,6 +418,40 @@ def main():
         time.sleep(0.2)
     set_backlight(True)
     pygame.quit()
+
+
+KEY_ACTIONS = {"next_page", "prev_page", "overview", "forecast", "alerts", "next_alert",
+               "refresh", "sleep", "quit", "button_a", "button_b", "button_c", "button_d", "button_e"}
+MODIFIER_KEYS = {f"{side}{m}" for side in ("left", "right") for m in ("ctrl", "shift", "alt", "gui")}
+# brief on-screen confirmation for keys whose effect isn't obvious
+KEY_TOASTS = {"refresh": "Refreshing", "next_alert": "Next alert"}
+
+
+def key_name(key: int, mod: int) -> str:
+    """Config-style name for a key press: 'space', 'audionext', 'ctrl+shift+c'."""
+    # SDL's own names (use_compat=False) also cover media keys: "AudioNext", "VolumeUp"
+    base = config.normalize_key(pygame.key.name(key, use_compat=False) or f"key{key}")
+    mods = [m for m, flag in (("ctrl", pygame.KMOD_CTRL), ("alt", pygame.KMOD_ALT),
+                               ("shift", pygame.KMOD_SHIFT), ("meta", pygame.KMOD_META))
+            if mod & flag and base not in (f"left{m}", f"right{m}")]
+    return config.normalize_key("+".join(mods + [base]))
+
+
+def lookup_key(keymap: dict, key: int, mod: int):
+    """(name, action). action is None if unmapped, "" if deliberately ignored.
+
+    An exact match wins ("ctrl+c"); otherwise a plain key still works when a
+    modifier happens to be held ("shift+space" → "space").
+    """
+    name = key_name(key, mod)
+    if name.rsplit("+", 1)[-1] in MODIFIER_KEYS:   # a lone Ctrl/Shift/… press: nothing to do
+        return name, ""
+    if name in keymap:
+        return name, keymap[name]
+    plain = name.rsplit("+", 1)[-1]
+    if plain in keymap and plain != name:
+        return name, keymap[plain]
+    return name, None
 
 
 ACTION_LABELS = {

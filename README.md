@@ -131,6 +131,32 @@ long until the next one. Change the interval with `[display] page_seconds`
 
 Other keys: `R` refreshes data · `Q` quits.
 
+### Keys, macro pads, knobs and remotes
+
+Every key is configurable under `[keys]` in `config.toml`, so any USB
+keyboard, macro pad, volume knob or Bluetooth remote can drive the dashboard
+without reprogramming it. Defaults:
+
+| Key(s) | Action |
+|---|---|
+| Space, →, Page Down, Volume up, Next track | Next screen |
+| ←, Page Up, Volume down, Previous track | Previous screen |
+| Enter, R, Play/Pause | Refresh |
+| Mute | Sleep / wake |
+| 1–5 | Same as Button SHIM A–E |
+| Q, Esc | Quit |
+
+Combos work too — handy for macro pads that ship sending copy/paste:
+
+```toml
+[keys]
+"ctrl+c" = "next_page"
+"ctrl+v" = "refresh"
+```
+
+To find what a device sends, run `python3 dashboard.py --show-keys` and press
+it; on the Pi, unmapped keys are logged (`journalctl -u dashboard -f`).
+
 Render PNGs without a screen (used for the images above):
 
 ```bash

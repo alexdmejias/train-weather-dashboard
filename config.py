@@ -69,6 +69,36 @@ DEFAULTS: dict = {
         "d": "refresh",
         "e": "sleep",
     },
+    # Keyboard / USB macro pad / Bluetooth remote → action. Keys are pygame key
+    # names, lower-case without spaces ("space", "right", "audionext",
+    # "volumeup", "f13"), optionally with modifiers: "ctrl+c", "ctrl+shift+1".
+    # Unmapped keys are printed to the log so you can find their names.
+    # Actions: next_page, prev_page, overview, forecast, alerts, next_alert,
+    # refresh, sleep, quit, button_a … button_e (act like Button SHIM A–E),
+    # or "" to ignore a key.
+    "keys": {
+        "space": "next_page",
+        "right": "next_page",
+        "left": "prev_page",
+        "pagedown": "next_page",
+        "pageup": "prev_page",
+        # rotary knobs and media remotes usually send these
+        "volumeup": "next_page",
+        "volumedown": "prev_page",
+        "audionext": "next_page",
+        "audioprev": "prev_page",
+        "audioplay": "refresh",
+        "audiomute": "sleep",
+        "return": "refresh",
+        "r": "refresh",
+        "q": "quit",
+        "escape": "quit",
+        "1": "button_a",
+        "2": "button_b",
+        "3": "button_c",
+        "4": "button_d",
+        "5": "button_e",
+    },
     "alerts": {
         "subway": True,               # MTA delays, suspensions and planned work on your lines
         "weather": True,              # National Weather Service advisories/watches/warnings
@@ -92,15 +122,31 @@ def load(path: Path | None = None) -> dict:
     return cfg
 
 
+FREEFORM = {"keys"}   # tables whose entries are user-chosen names, merged entry by entry
+
+
 def _merge(base: dict, override: dict, where: str, prefix=""):
     for key, value in override.items():
         name = f"{prefix}{key}"
         if key not in base:
             print(f"{where}: ignoring unknown setting {name!r}")
+        elif key in FREEFORM and isinstance(value, dict):
+            base[key].update({normalize_key(k): v for k, v in value.items()})
         elif isinstance(base[key], dict) and isinstance(value, dict) and key != "walk_minutes":
             _merge(base[key], value, where, name + ".")
         else:
             base[key] = value
+
+
+MODIFIERS = ("ctrl", "alt", "shift", "meta")
+
+
+def normalize_key(name: str) -> str:
+    """'Ctrl + Shift + Page Down' → 'ctrl+shift+pagedown' (modifiers in a fixed order)."""
+    parts = [p.replace(" ", "").lower() for p in str(name).split("+") if p.strip()]
+    mods = [m for m in MODIFIERS if m in parts]
+    rest = [p for p in parts if p not in MODIFIERS]
+    return "+".join(mods + rest)
 
 
 # ── location ──────────────────────────────────────────────────────────────
