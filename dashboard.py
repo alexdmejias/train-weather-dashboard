@@ -9,11 +9,12 @@ laptop it opens an 800×480 window. layout.py, theme.py, scenery.py and icons.py
 reloaded automatically when they change, so you can tweak the design live.
 
 Space = next screen (screens also advance on their own every 30 s) ·
-               1–5 = Button SHIM A–E · R = refresh data · Q/Esc = quit
+               1–5 = Button SHIM A–E · R = refresh data · S = settings · Q/Esc = quit
                (all keys are configurable under [keys]; --show-keys prints names)
-Touch (Elecrow): tap = switch page · tap the alert banner = alert details
+Touch (Elecrow): tap = switch page · tap the alert banner = alert details ·
+               tap any corner 3 times = settings
 Button SHIM (HyperPixel): A departures · B forecast · C alerts · D refresh ·
-               E sleep/wake (configurable in [buttons])
+               E sleep/wake (configurable in [buttons]) · any button 3× quickly = settings
 Any key, button or tap restarts the 30 s timer.
 """
 
@@ -34,6 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+PI_ZERO = platform.machine().startswith("armv6")   # Pi Zero / Pi 1: too slow to animate
 ON_PI = platform.machine().startswith(("armv6", "armv7", "aarch64")) and Path("/dev/dri").exists()
 if ON_PI and not os.environ.get("SDL_VIDEODRIVER"):
     os.environ["SDL_VIDEODRIVER"] = "kmsdrm"
@@ -47,11 +49,12 @@ from hardware.display import Presenter, set_backlight  # noqa: E402
 import icons  # noqa: E402
 import layout  # noqa: E402
 import scenery  # noqa: E402
+import effects  # noqa: E402
 import theme  # noqa: E402
 from sources import alerts as alerts_src, mock, weather as weather_src  # noqa: E402
 from sources.trains import mta_subway  # noqa: E402
 
-HOT_MODULES = [theme, icons, scenery, layout]   # reload order matters: theme first
+HOT_MODULES = [theme, icons, scenery, layout, effects]   # reload order matters: theme first
 BUTTON_EVENT = pygame.USEREVENT + 1
 
 
@@ -80,6 +83,12 @@ class State:
     page_progress: float | None = None            # 0–1 until the next auto-advance (None = off)
     style: str = "classic"                        # look: classic, hearth, almanac, window
     season: str = "auto"                          # palette for the cozy looks (auto = by date)
+    effects: str = "on"                           # animated touches: on, subtle, off
+    holidays: bool = True
+    special_dates: dict = field(default_factory=dict)  # "MM-DD" → message
+    page_seconds: int = 30                        # auto-advance interval (0 = off)
+    settings_open: bool = False
+    settings_focus: int = -1                      # keyboard/button focus on the settings page
 
     # convenience views used by the layout
     @property
@@ -262,6 +271,10 @@ def main():
         direction_labels=sub["direction_labels"],
         style=disp["style"],
         season=disp["season"],
+        effects=_effects_mode(cfg["effects"]["mode"]),
+        holidays=bool(cfg["effects"]["holidays"]),
+        special_dates=dict(cfg["effects"]["dates"]),
+        page_seconds=int(disp["page_seconds"] or 0),
     )
     if not state.location:
         zip_code = str(cfg["weather"]["zip"])
@@ -306,8 +319,63 @@ def main():
 
     clock = pygame.time.Clock()
     drawn = None
-    page_seconds = disp["page_seconds"]       # auto-advance interval; 0 = stay put
     page_started = time.monotonic()
+    frame = pygame.Surface((theme.W, theme.H))   # the still dashboard; effects animate on a copy
+    fps = max(5, min(60, int(cfg["effects"]["fps"])))
+    fx_was_on = False
+    fx_error_until = 0.0
+    corner_taps: list = []                    # times of recent taps in a screen corner
+    presses: list = []                        # (time, button) of recent Button SHIM presses
+    settings_idle = 0.0                       # settings page closes itself after a minute
+
+    def open_settings():
+        nonlocal settings_idle
+        state.settings_open, state.settings_focus = True, -1
+        settings_idle = time.monotonic()
+        state.version += 1
+
+    def close_settings(msg=None):
+        state.settings_open = False
+        if msg:
+            state.toast = (msg, time.monotonic() + 2.0)
+        state.version += 1
+
+    def choose(setting, value):
+        """Apply one settings-page choice now and remember it in settings.json."""
+        nonlocal settings_idle
+        settings_idle = time.monotonic()
+        if setting == "done":
+            close_settings()
+            return
+        if setting == "try":
+            effects.preview(value, 20)
+            close_settings(f"Playing · {value.capitalize()}")
+            return
+        if setting == "clock":
+            state.clock24 = value == "24h"
+        elif setting == "effects":
+            state.effects = value
+        else:
+            setattr(state, setting, value)
+        effects.preview("", 0)                # re-plan with the new settings
+        config.save_setting("effects" if setting == "effects" else "display",
+                            "mode" if setting == "effects" else setting, value)
+        state.version += 1
+
+    def settings_input(action):
+        """Keys / buttons on the settings page: move focus, choose, close."""
+        nonlocal settings_idle
+        settings_idle = time.monotonic()
+        hits = layout.SETTINGS_HITS
+        if action in ("next_page", "prev_page") and hits:
+            step = 1 if action == "next_page" else -1
+            state.settings_focus = (state.settings_focus + step) % len(hits)
+        elif action in ("refresh", "next_alert") and 0 <= state.settings_focus < len(hits):
+            _, setting, value = hits[state.settings_focus]
+            choose(setting, value)
+        elif action in ("sleep", "quit", "settings", "overview"):
+            close_settings()
+        state.version += 1
 
     def act(action: str, label: str | None = None):
         """Run a named action (from a button, key or tap)."""
@@ -317,6 +385,9 @@ def main():
         if state.asleep:            # any input wakes the screen and does nothing else
             state.asleep = False
             set_backlight(True)
+            return
+        if action == "settings":
+            open_settings()
             return
         if action in ("overview", "forecast", "alerts"):
             if action == "alerts" and "alerts" not in names:
@@ -343,6 +414,19 @@ def main():
             if ev.type == pygame.QUIT:
                 running[0] = False
             elif ev.type == BUTTON_EVENT:
+                t = time.monotonic()
+                presses[:] = [p for p in presses if t - p[0] < 1.5 and p[1] == ev.button] + [(t, ev.button)]
+                if state.settings_open:
+                    # A up · B down · C/D choose · E close
+                    settings_input({"A": "prev_page", "B": "next_page", "C": "refresh", "D": "refresh"}
+                                   .get(ev.button, "sleep"))
+                    continue
+                if len(presses) >= 3:            # the same button three times quickly
+                    presses.clear()
+                    state.asleep = False
+                    set_backlight(True)
+                    open_settings()
+                    continue
                 action = bcfg[ev.button.lower()]
                 act(action, f"{ev.button} · {ACTION_LABELS.get(action, action)}")
             elif ev.type == pygame.KEYDOWN:
@@ -355,7 +439,9 @@ def main():
                     print(f"[keys] {name!r} → {action or '(ignored)'}", flush=True)
                 if not action:
                     continue
-                if action == "quit":
+                if state.settings_open and not action.startswith("button_"):
+                    settings_input(action)
+                elif action == "quit":
                     running[0] = False
                 elif action.startswith("button_"):          # behave exactly like Button SHIM A–E
                     pygame.event.post(pygame.event.Event(BUTTON_EVENT, button=action[-1].upper()))
@@ -369,13 +455,33 @@ def main():
                     pos = presenter.to_canvas((ev.x * screen.get_width(), ev.y * screen.get_height()))
                 else:
                     pos = presenter.to_canvas(ev.pos)
+                t = time.monotonic()
+                if state.settings_open:
+                    hit = next((h for h in layout.SETTINGS_HITS if h[0].collidepoint(pos)), None)
+                    if hit:
+                        choose(hit[1], hit[2])
+                    continue
+                if _in_corner(pos):
+                    # three taps in a corner open settings (corner taps never switch pages)
+                    corner_taps[:] = [c for c in corner_taps if t - c < 1.5] + [t]
+                    if state.asleep:
+                        act("wake")
+                    elif len(corner_taps) >= 3:
+                        corner_taps.clear()
+                        open_settings()
+                    continue
                 if layout.BANNER_RECT.collidepoint(pos) and "alerts" in layout.pages(state):
                     act("alerts")            # tap the alert banner → details
                 else:
                     act("next_page")
 
         # auto-advance: Departures → Forecast → (Alerts) → Departures …
+        page_seconds = state.page_seconds
         elapsed = time.monotonic() - page_started
+        if state.settings_open:
+            page_started, elapsed = time.monotonic(), 0.0     # don't flip pages behind the settings
+            if time.monotonic() - settings_idle > 60:
+                close_settings()
         if page_seconds and not state.asleep and elapsed >= page_seconds:
             state.page = (state.page + 1) % len(layout.pages(state))
             page_started, elapsed = time.monotonic(), 0.0
@@ -394,21 +500,43 @@ def main():
         rotation = state.alert_index if (state.subway_alerts or state.weather_alerts) else 0
         # the countdown bar moves in 2-second steps — cheap enough for a Pi Zero
         tick = int(elapsed // 2) if page_seconds else 0
-        key = (state.version, now.strftime("%H:%M"), state.page, rotation, state.toast, state.asleep, tick)
-        if reloaded or key != drawn:
+        key = (state.version, now.strftime("%H:%M"), state.page, rotation, state.toast, state.asleep, tick,
+               state.settings_focus)
+        changed = reloaded or key != drawn
+        if changed:
             state.now = now
             with state.lock:
                 if state.asleep:
-                    presenter.canvas.fill((0, 0, 0))
+                    frame.fill((0, 0, 0))
                 else:
                     try:
-                        layout.draw(presenter.canvas, state)
+                        layout.draw(frame, state)
                     except Exception as e:
-                        _draw_error(presenter.canvas, e)
-            presenter.present()
+                        _draw_error(frame, e)
             drawn = key
             if shim:
                 shim.set_color((0, 0, 0) if state.asleep else status_color(state))
+
+        # effects: copy the still frame and animate on top while anything is moving
+        fx_on = False
+        if not state.asleep and not state.settings_open and time.monotonic() > fx_error_until:
+            try:
+                fx_on = effects.running(state)
+            except Exception as e:
+                print(f"[effects] {type(e).__name__}: {e}", flush=True)
+                fx_error_until = time.monotonic() + 60
+        if fx_on or changed or fx_was_on:
+            presenter.canvas.blit(frame, (0, 0))
+            if fx_on:
+                try:
+                    effects.step(presenter.canvas, state, clock.get_time() / 1000)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print(f"[effects] paused for a minute: {type(e).__name__}: {e}", flush=True)
+                    fx_error_until = time.monotonic() + 60
+            presenter.present()
+        fx_was_on = fx_on
 
         if shot.is_set():
             pygame.image.save(presenter.canvas, "/tmp/dashboard.png")
@@ -416,7 +544,7 @@ def main():
             print("saved /tmp/dashboard.png (+ dashboard-raw.png)", flush=True)
             shot.clear()
 
-        clock.tick(10)
+        clock.tick(fps if fx_on else 10)
 
     if shim:
         shim.set_color((0, 0, 0))
@@ -426,7 +554,7 @@ def main():
 
 
 KEY_ACTIONS = {"next_page", "prev_page", "overview", "forecast", "alerts", "next_alert",
-               "refresh", "sleep", "quit", "button_a", "button_b", "button_c", "button_d", "button_e"}
+               "refresh", "sleep", "quit", "settings", "button_a", "button_b", "button_c", "button_d", "button_e"}
 MODIFIER_KEYS = {f"{side}{m}" for side in ("left", "right") for m in ("ctrl", "shift", "alt", "gui")}
 # brief on-screen confirmation for keys whose effect isn't obvious
 KEY_TOASTS = {"refresh": "Refreshing", "next_alert": "Next alert"}
@@ -462,8 +590,22 @@ def lookup_key(keymap: dict, key: int, mod: int):
 ACTION_LABELS = {
     "overview": "Departures", "forecast": "Forecast", "alerts": "Alerts",
     "next_page": "Next page", "prev_page": "Previous page", "next_alert": "Next alert",
-    "refresh": "Refreshing", "sleep": "Sleep",
+    "refresh": "Refreshing", "sleep": "Sleep", "settings": "Settings",
 }
+
+
+def _effects_mode(mode: str) -> str:
+    if mode == "auto":
+        return "off" if PI_ZERO else "on"
+    return mode if mode in ("on", "subtle", "off") else "on"
+
+
+CORNER = (110, 90)   # size of each corner's tap zone on the 800×480 canvas
+
+
+def _in_corner(pos) -> bool:
+    x, y = pos
+    return (x < CORNER[0] or x > theme.W - CORNER[0]) and (y < CORNER[1] or y > theme.H - CORNER[1])
 
 
 def status_color(state):

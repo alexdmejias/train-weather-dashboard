@@ -54,6 +54,18 @@
 # d = "refresh"
 # e = "sleep"
 
+[effects]
+# mode = "auto"                  # animated rain, snow, wind, leaves, Christmas lights…:
+                                 # "auto" (on, except a Pi Zero), "on", "subtle", "off"
+# fps = 24                       # frames per second while something is moving
+# holidays = true                # Christmas, Halloween, New Year, 4th of July, Valentine's
+# dates = { "03-14" = "Happy birthday, Sam!" }   # confetti + a message on your own days
+                                 # ("MM-DD" every year, or "YYYY-MM-DD" once)
+
+# The on-screen settings page (tap any corner 3 times, or press S) saves to
+# settings.json, which wins over this file for: style, season, clock,
+# page_seconds and effects mode. Delete settings.json to go back to config.toml.
+
 [alerts]
 # subway = true                  # MTA delays, suspensions and planned work on your lines
 # weather = true                 # National Weather Service advisories, watches, warnings

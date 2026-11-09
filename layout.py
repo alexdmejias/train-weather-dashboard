@@ -21,6 +21,8 @@ from sources.trains import mta_subway
 
 _cache: dict = {}
 BANNER_RECT = pygame.Rect(0, 0, 0, 0)   # where the alert banner was drawn (for taps)
+CARD_RECTS: list = []                    # cards on screen (effects hang lights / settle snow on them)
+SETTINGS_HITS: list = []                 # settings page: (rect, setting, value) for taps + focus order
 
 
 def pages(state) -> list[str]:
@@ -34,6 +36,12 @@ def draw(screen: pygame.Surface, state) -> None:
         _cache.clear()          # colours are baked into cached surfaces
         icons._cache.clear()
     screen.blit(scenery.background(), (0, 0))
+    CARD_RECTS.clear()
+    if getattr(state, "settings_open", False):
+        _settings_page(screen, state)
+        if getattr(state, "toast", None):
+            _toast(screen, state.toast[0])
+        return
     _header(screen, state)
     top = 92
     body = pygame.Rect(T.PAD, top, T.W - 2 * T.PAD, T.H - top - T.PAD - 6)
@@ -703,6 +711,7 @@ def _panel(w, h, radius, fill, border=None):
 
 def _card(screen, r):
     """A content card: solid, frosted (window style) or paper with a soft shadow (almanac)."""
+    CARD_RECTS.append(pygame.Rect(r))
     key = ("card", r.w, r.h, T.KEY)
     if key not in _cache:
         radius = T.RADIUS
@@ -837,3 +846,72 @@ def _ago(t: datetime, now: datetime) -> str:
     if s < 3600:
         return f"{int(s // 60)}m ago"
     return f"{int(s // 3600)}h ago"
+
+
+# ── settings page ─────────────────────────────────────────────────────────
+
+# (setting, label, [(value, option label), …]); "try_*" rows play an effect
+SETTINGS_ROWS = [
+    ("style", "Look", [("classic", "Classic"), ("hearth", "Hearth"), ("almanac", "Almanac"), ("window", "Window")]),
+    ("season", "Season", [("auto", "Auto"), ("autumn", "Autumn"), ("winter", "Winter"), ("spring", "Spring"),
+                          ("summer", "Summer")]),
+    ("effects", "Effects", [("on", "On"), ("subtle", "Subtle"), ("off", "Off")]),
+    ("clock", "Clock", [("12h", "12-hour"), ("24h", "24-hour")]),
+    ("page_seconds", "Auto-advance", [(0, "Off"), (15, "15 s"), (30, "30 s"), (60, "1 min")]),
+    ("try", "Try weather", [("rain", "Rain"), ("snow", "Snow"), ("wind", "Wind"), ("thunder", "Storm"),
+                            ("fog", "Fog")]),
+    ("try", "Try season", [("leaves", "Leaves"), ("petals", "Petals"), ("fireflies", "Fireflies")]),
+    ("try", "Try holiday", [("christmas", "Christmas"), ("halloween", "Halloween"), ("fireworks", "Fireworks"),
+                            ("hearts", "Hearts"), ("confetti", "Confetti")]),
+]
+
+
+def setting_value(state, key):
+    if key == "clock":
+        return "24h" if state.clock24 else "12h"
+    return getattr(state, key, None)
+
+
+def _settings_page(screen, state):
+    SETTINGS_HITS.clear()
+    focus = getattr(state, "settings_focus", -1)
+
+    x, y = T.PAD + 2, 18
+    screen.blit(_text("Settings", "heading", 30, T.TEXT), (x, y))
+    screen.blit(_text("Changes save as you tap", "regular", 15, T.MUTED), (x + 2, y + 40))
+
+    def chip(r, label, selected, idx, primary=False):
+        fill = T.ACCENT if (selected or primary) else T.CARD_HI
+        ink = T.BG_BOTTOM if (selected or primary) else T.TEXT
+        if idx == focus:
+            screen.blit(_panel(r.w + 6, r.h + 6, (r.h + 6) // 2, T.TEXT), (r.x - 3, r.y - 3))
+        screen.blit(_panel(r.w, r.h, r.h // 2, fill, None if (selected or primary) else T.CARD_BORDER), r)
+        t = _text(label, "semibold" if (selected or primary) else "medium", 15, ink)
+        screen.blit(t, t.get_rect(center=r.center))
+
+    done = pygame.Rect(T.W - T.PAD - 96, 26, 96, 40)
+    SETTINGS_HITS.append((done, "done", None))
+    chip(done, "Done", False, 0, primary=True)
+
+    body = pygame.Rect(T.PAD, 92, T.W - 2 * T.PAD, T.H - 92 - T.PAD - 6)
+    _card(screen, body)
+    CARD_RECTS.clear()          # no lights or snow on top of the settings
+    row_h = (body.h - 12) // len(SETTINGS_ROWS)
+    lx = body.x + 22
+    ox = body.x + 160
+    for i, (key, label, options) in enumerate(SETTINGS_ROWS):
+        cy = body.y + 6 + i * row_h + row_h // 2
+        if i and key == "try" and SETTINGS_ROWS[i - 1][0] != "try":
+            pygame.draw.line(screen, T.DIVIDER, (lx, cy - row_h // 2), (body.right - 22, cy - row_h // 2), 1)
+        screen.blit(_text(label, "medium", 15, T.TEXT_SOFT if key != "try" else T.MUTED), (lx, cy - 10))
+        current = setting_value(state, key)
+        cx = ox
+        for value, olabel in options:
+            w = _text(olabel, "semibold", 15, T.TEXT).get_width() + 30
+            r = pygame.Rect(cx, cy - 16, w, 32)
+            SETTINGS_HITS.append((r, key, value))
+            chip(r, olabel, key != "try" and value == current, len(SETTINGS_HITS) - 1)
+            cx += w + 8
+
+    hint = _text("Tap any corner of the screen 3 times to come back here", "regular", 12, T.FAINT)
+    screen.blit(hint, hint.get_rect(midtop=(T.W // 2, T.H - 22)))

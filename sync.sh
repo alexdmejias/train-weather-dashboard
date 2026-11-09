@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Watch this folder and push changes to the Pi on every save.
 #
-#   PI=pi@pizero.local ./sync.sh
+#   PI=pi@dashboard.local ./sync.sh
 #
 # layout.py / theme.py / icons.py hot-reload on the Pi by themselves.
 # Changes to anything else (dashboard.py, sources/, config.toml) restart the
 # service automatically.
 set -euo pipefail
-PI="${PI:-pi@pizero.local}"
+PI="${PI:-pi@dashboard.local}"
 DEST="${DEST:-~/train-weather-dashboard}"
 HOT='^(layout|theme|icons)\.py$'
 
