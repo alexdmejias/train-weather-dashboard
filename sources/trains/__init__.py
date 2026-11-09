@@ -11,8 +11,7 @@ import importlib
 
 PROVIDERS = {
     "mock": "sources.trains.mock",
-    "gtfs_rt": "sources.trains.gtfs_rt",
-    "transport_rest": "sources.trains.transport_rest",
+    "mta_subway": "sources.trains.mta_subway",
 }
 
 
@@ -21,10 +20,3 @@ def get_provider(name: str):
         return importlib.import_module(PROVIDERS[name])
     except KeyError:
         raise SystemExit(f"Unknown train provider {name!r}. Choose one of: {', '.join(PROVIDERS)}")
-
-
-def apply_line_colors(departures, colors: dict):
-    for d in departures:
-        if not d.color:
-            d.color = colors.get(d.line)
-    return departures

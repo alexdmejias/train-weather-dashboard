@@ -6,38 +6,21 @@ units = "fahrenheit"          # "fahrenheit" or "celsius"
 location_name = "Brooklyn"    # shown on the weather card
 
 [weather]
-latitude = 40.7128
-longitude = -74.0060
+latitude = 40.6924
+longitude = -73.9874
 refresh_minutes = 15
 
 [trains]
-# "mock"           — fake data, great for designing the layout
-# "gtfs_rt"        — any agency with a GTFS-realtime TripUpdates feed
-# "transport_rest" — transport.rest / HAFAS APIs (Germany & much of Europe)
-provider = "mock"
-mock_scenario = "normal"      # normal | delays | rain | night | snow
-station_name = "Harbor Street"
-refresh_seconds = 45
+provider = "mta_subway"       # or "mock" for fake data while designing
+mock_scenario = "normal"      # mock only: normal | evening | rain | night | snow
+station_name = "Jay St-MetroTech"
+refresh_seconds = 30          # the MTA feeds update about every 30 s
 max_rows = 5
+walk_minutes = 0              # hide trains leaving sooner than you can reach the platform
 
-# Badge colour per line label (optional)
-[trains.line_colors]
-A = "#4C8DFF"
-C = "#35C48A"
-E = "#F2A33A"
-
-# ── provider settings (only the one you use matters) ──────────────────────
-
-[trains.gtfs_rt]
-feed_urls = ["https://example-agency.org/gtfs-rt/tripupdates"]
-stop_ids = ["123N", "123S"]
-# headers = { "x-api-key" = "your-key" }   # only if your agency requires one
-
-[trains.gtfs_rt.destinations]
-"123N" = "Uptown"
-"123S" = "Downtown"
-
-[trains.transport_rest]
-base_url = "https://v6.db.transport.rest"
-stop_id = "8011160"
-# products = ["suburban", "regional"]
+[trains.mta_subway]
+# Station ids — find yours with:  python3 tools/find_station.py "jay st"
+# A station complex can have one id per line group; list them all.
+stations = ["A41", "R29"]
+# directions = ["N"]          # optional: "N" = uptown/Bronx/Queens-bound, "S" = downtown/Brooklyn-bound
+# routes = ["A", "C", "F"]    # optional: only these lines

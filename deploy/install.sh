@@ -6,7 +6,9 @@ USER_NAME="${SUDO_USER:-$USER}"
 
 echo "→ Installing packages"
 sudo apt-get update -qq
-sudo apt-get install -y python3-pygame python3-requests python3-protobuf
+sudo apt-get install -y python3-pygame python3-requests python3-protobuf python3-pip
+# MTA real-time feeds are protobuf; this is just the generated schema module
+sudo pip3 install --break-system-packages --no-deps gtfs-realtime-bindings
 
 echo "→ Adding $USER_NAME to the video/render/input groups (display + touch access)"
 sudo usermod -aG video,render,input "$USER_NAME"
@@ -21,7 +23,8 @@ sudo systemctl enable --now dashboard.service
 
 echo
 echo "Done. Next:"
-echo "  • edit $DIR/config.toml (location, station, provider)"
+echo "  • find your station:  python3 $DIR/tools/find_station.py \"bedford\""
+echo "  • edit $DIR/config.toml (station ids, weather location)"
 echo "  • add the screen settings from deploy/config.txt.snippet to /boot/firmware/config.txt and reboot"
 echo "  • logs:    journalctl -u dashboard -f"
 echo "  • restart: sudo systemctl restart dashboard"

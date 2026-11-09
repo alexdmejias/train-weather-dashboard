@@ -1,4 +1,4 @@
-"""Parser tests using trimmed real-world response shapes.  Run: python3 -m pytest"""
+"""Parser tests using real-world response shapes.  Run: python3 -m pytest"""
 
 import sys
 from datetime import datetime, timedelta, timezone
@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sources import mock, weather  # noqa: E402
-from sources.trains import transport_rest  # noqa: E402
+from sources.trains import mta_subway  # noqa: E402
 
 TZ = timezone(timedelta(hours=-5))
 
@@ -42,21 +42,49 @@ def test_open_meteo_parse():
     assert w.daily[1].precip_prob == 70
 
 
-def test_transport_rest_parse():
-    data = {"departures": [
-        {"when": "2026-11-09T08:44:00+01:00", "plannedWhen": "2026-11-09T08:40:00+01:00",
-         "delay": 240, "platform": "3", "direction": "Spandau", "line": {"name": "S5"}},
-        {"when": None, "plannedWhen": "2026-11-09T08:50:00+01:00", "delay": None,
-         "cancelled": True, "plannedPlatform": "4", "direction": "Ostkreuz", "line": {"name": "S7"}},
-    ]}
-    a, b = transport_rest.parse(data)
-    assert (a.line, a.destination, a.delay_min, a.platform) == ("S5", "Spandau", 4, "3")
-    assert b.cancelled and b.platform == "4" and b.depart_at.minute == 50
+def _feed(now):
+    from google.transit import gtfs_realtime_pb2 as g
+    feed = g.FeedMessage()
+    feed.header.gtfs_realtime_version = "1.0"
+    ts = int(now.timestamp())
+
+    def trip(route, stops):
+        e = feed.entity.add(id=str(len(feed.entity)))
+        e.trip_update.trip.route_id = route
+        for stop_id, mins in stops:
+            u = e.trip_update.stop_time_update.add(stop_id=stop_id)
+            u.arrival.time = ts + mins * 60
+            u.departure.time = ts + mins * 60
+
+    trip("A", [("A41N", 4), ("A40N", 6), ("A02N", 40)])        # northbound A to Inwood
+    trip("FX", [("A41S", 9), ("F27S", 20), ("D43S", 35)])       # express F to Coney Island
+    trip("C", [("A42N", 1), ("A41N", -2), ("A09N", 30)])        # already left Jay St
+    trip("C", [("A45S", 2), ("A41S", 12)])                      # terminates at Jay St → not shown
+    trip("R", [("R29S", 3), ("R45S", 40)])                      # different station id
+    return feed.SerializeToString()
+
+
+def test_mta_subway_parse():
+    now = datetime(2026, 11, 9, 8, 42, tzinfo=TZ)
+    deps = mta_subway.parse(_feed(now), ["A41"], now=now)
+    got = sorted((d.line, d.destination, d.express, round((d.depart_at - now).total_seconds() / 60)) for d in deps)
+    assert got == [("A", "Inwood-207 St", False, 4), ("F", "Coney Island-Stillwell Av", True, 9)]
+    assert all(d.delay_min is None and d.color for d in deps)
+    # direction + route filters
+    assert [d.line for d in mta_subway.parse(_feed(now), ["A41"], directions=["S"], now=now)] == ["F"]
+    assert [d.line for d in mta_subway.parse(_feed(now), ["A41"], routes=["A"], now=now)] == ["A"]
+
+
+def test_mta_feed_selection():
+    assert mta_subway.feeds_for(["L08"]) == [mta_subway.BASE + "-l"]
+    feeds = mta_subway.feeds_for(["A41", "R29"])
+    assert {f.rsplit("gtfs", 1)[1] for f in feeds} == {"-ace", "-bdfm", "-nqrw"}
+    assert mta_subway.feeds_for(["A41"], routes=["F"]) == [mta_subway.BASE + "-bdfm"]
 
 
 def test_mock_scenarios_render_data():
     now = datetime(2026, 11, 9, 8, 42, tzinfo=TZ)
-    for s in ("normal", "delays", "rain", "night", "snow"):
+    for s in ("normal", "evening", "rain", "night", "snow"):
         assert mock.trains(now, s)
         w = mock.weather(now, s)
         assert len(w.hourly) >= 5 and len(w.daily) == 7

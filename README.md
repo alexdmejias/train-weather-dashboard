@@ -1,13 +1,13 @@
 # Train & Weather Dashboard
 
-A glanceable departures + weather display for a Raspberry Pi Zero W and an
-800×480 touchscreen (built for the Elecrow 5" HDMI panel).
+A glanceable NYC Subway departures + weather display for a Raspberry Pi
+Zero W and an 800×480 touchscreen (built for the Elecrow 5" HDMI panel).
 
 ![Overview](docs/screenshots/overview.png)
 
-| Rain on the way | Delays & cancellations |
+| Rain on the way | Evening |
 |---|---|
-| ![](docs/screenshots/overview-rain.png) | ![](docs/screenshots/overview-delays.png) |
+| ![](docs/screenshots/overview-rain.png) | ![](docs/screenshots/overview-evening.png) |
 | **Night** | **7-day forecast** (tap to switch) |
 | ![](docs/screenshots/overview-night.png) | ![](docs/screenshots/forecast.png) |
 
@@ -18,19 +18,38 @@ this is a small Python + pygame program that draws directly to the screen —
 no desktop, no browser. It uses ~40 MB of RAM, and only redraws when the
 minute ticks or new data arrives.
 
+- **Subway:** the MTA's [GTFS-realtime feeds](https://www.mta.info/developers)
+  — no API key. Only the feeds for lines that stop at your station are
+  downloaded. Each train shows its line (◆ diamond = express), its real
+  destination, and minutes until it arrives.
 - **Weather:** [Open-Meteo](https://open-meteo.com) — free, no API key.
-- **Trains:** pluggable providers in `sources/trains/`:
-  - `mock` — realistic fake data (default; great for designing)
-  - `gtfs_rt` — any agency publishing a GTFS-realtime TripUpdates feed
-  - `transport_rest` — transport.rest / HAFAS APIs (Germany, much of Europe)
-  - Adding another API = one file with a `fetch(cfg) -> list[Departure]` function.
+
+### Pick your station
+
+```bash
+python3 tools/find_station.py bedford
+#  L08    Bedford Av                           L
+python3 tools/find_station.py "jay st"
+#  A41    Jay St-MetroTech                     A C F
+#  R29    Jay St-MetroTech                     N R W
+```
+
+Put the id(s) in `config.toml` under `[trains.mta_subway] stations = [...]`.
+Big station complexes have one id per line group — list them all. Optional
+filters: `directions = ["N"]` (uptown / toward the Bronx & Queens) or
+`["S"]`, and `routes = ["A", "C"]`. Set `walk_minutes` to hide trains you
+can't make it to.
+
+`data/subway.json` (station names, the lines at each station, line colours)
+is built from the MTA's static schedule. Refresh it occasionally with
+`python3 tools/build_stations.py`.
 
 ## Develop on your laptop
 
 ```bash
-pip install pygame requests
+pip install -r requirements.txt
 python3 dashboard.py --mock                    # 800×480 window, fake data
-python3 dashboard.py --mock --scenario delays  # also: rain, night, snow
+python3 dashboard.py --mock --scenario evening # also: rain, night, snow
 ```
 
 `layout.py`, `theme.py` and `icons.py` **hot-reload on save** — keep the
@@ -60,11 +79,8 @@ python3 tools/render.py --scenario rain --page 1 --scale 2 --out /tmp/x.png
    ssh pi@pizero.local 'cd ~/train-weather-dashboard && bash deploy/install.sh'
    ```
 
-4. Edit `~/train-weather-dashboard/config.toml` on the Pi (location, station,
-   provider), then `sudo systemctl restart dashboard`.
-
-For the `gtfs_rt` provider also run on the Pi:
-`sudo apt install python3-pip && pip install --break-system-packages --no-deps gtfs-realtime-bindings`
+4. Edit `~/train-weather-dashboard/config.toml` on the Pi (station ids,
+   weather latitude/longitude), then `sudo systemctl restart dashboard`.
 
 ## Iterate on the real screen
 
@@ -91,8 +107,10 @@ dashboard.py        main loop: display, touch, background fetching, hot reload
 layout.py           everything drawn on screen            (hot-reloaded)
 theme.py            colours, fonts, spacing               (hot-reloaded)
 icons.py            weather icons drawn in code           (hot-reloaded)
-sources/            weather + train providers, mock data
+sources/            Open-Meteo weather, MTA subway feed, mock data
+data/subway.json    station + line table built from the MTA static GTFS
 tools/render.py     headless PNG renderer
+tools/find_station.py   look up station ids
 deploy/             systemd unit, installer, display config
 sync.sh             watch & push to the Pi
 config.example.toml copy to config.toml

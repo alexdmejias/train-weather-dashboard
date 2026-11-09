@@ -103,10 +103,13 @@ def _departures(screen, r, state):
     screen.blit(_fit(state.station, "semibold", 22, T.TEXT, r.w - 200), (ix, r.y + 36))
     _status(screen, r.right - 20, r.y + 20, state.trains_updated, state.trains_error, state.now)
 
-    deps = _upcoming(state.departures or [], state.now)[: state.max_rows]
+    deps = _upcoming(state.departures or [], state.now, state.walk_minutes)[: state.max_rows]
     list_top = r.y + 80
     if not deps:
-        msg = "Waiting for departures…" if state.departures is None else "No departures in the next hour"
+        if state.departures is None:
+            msg = "Can't reach the MTA · retrying" if state.trains_error else "Loading departures…"
+        else:
+            msg = "No upcoming trains"
         t = _text(msg, "medium", 17, T.MUTED)
         screen.blit(t, t.get_rect(center=(r.centerx, list_top + (r.bottom - list_top) // 2 - 10)))
         return
@@ -127,7 +130,7 @@ def _departure_row(screen, row, d, state):
     dim = d.cancelled
 
     # line badge
-    badge = _badge(d.line, T.hex_color(d.color), 34)
+    badge = _badge(d.line, T.hex_color(d.color), 34, diamond=d.express)
     screen.blit(badge, (row.x + 12, row.centery - 17))
 
     # destination + detail line
@@ -136,16 +139,18 @@ def _departure_row(screen, row, d, state):
     dest = _fit(d.destination, "semibold", 19, T.FAINT if dim else T.TEXT, row.right - right_w - tx)
     screen.blit(dest, (tx, row.y + 6))
 
+    parts = []
     if d.cancelled:
-        parts = [("Cancelled", T.BAD)]
-    elif d.delay_min >= 2:
-        parts = [(f"{d.delay_min} min late", T.WARN)]
-    else:
-        parts = [("On time", T.GOOD)]
+        parts.append(("Cancelled", T.BAD))
+    elif d.delay_min is not None:  # only if the feed reports lateness
+        parts.append((f"{d.delay_min} min late", T.WARN) if d.delay_min >= 2 else ("On time", T.GOOD))
+    if d.express:
+        parts.append(("Express", T.TEXT))
     if d.platform:
         parts.append((f"Track {d.platform}", T.MUTED))
     if d.depart_at:
-        parts.append((_clock(d.depart_at, state.clock24), T.MUTED))
+        when = _clock(d.depart_at, state.clock24)
+        parts.append((f"Arrives {when}", T.MUTED))
 
     x, y = tx, row.y + 30
     for j, (txt, col) in enumerate(parts):
@@ -153,7 +158,7 @@ def _departure_row(screen, row, d, state):
             dot = _text("·", "regular", 15, T.FAINT)
             screen.blit(dot, (x + 6, y))
             x += 6 + dot.get_width() + 6
-        t = _text(txt, "medium" if j == 0 else "regular", 15, col)
+        t = _text(txt, "medium" if col != T.MUTED else "regular", 15, col)
         screen.blit(t, (x, y))
         x += t.get_width()
 
@@ -175,8 +180,9 @@ def _departure_row(screen, row, d, state):
             pygame.draw.line(screen, T.FAINT, (nx - 3, sy), (rx + 2, sy), 2)
 
 
-def _upcoming(deps, now):
-    keep = [d for d in deps if d.depart_at and _minutes_until(d.depart_at, now) >= 0]
+def _upcoming(deps, now, walk_minutes=0):
+    """Trains you can still make, soonest first."""
+    keep = [d for d in deps if d.depart_at and _minutes_until(d.depart_at, now) >= walk_minutes]
     return sorted(keep, key=lambda d: d.depart_at)
 
 
@@ -188,7 +194,8 @@ def _weather(screen, r, state):
     screen.blit(_tracked((state.location or "WEATHER").upper(), "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
     w = state.weather
     if not w:
-        t = _text("Loading forecast…", "medium", 16, T.MUTED)
+        msg = "Forecast offline · retrying" if state.weather_error else "Loading forecast…"
+        t = _text(msg, "medium", 16, T.MUTED)
         screen.blit(t, t.get_rect(center=r.center))
         return
     if state.weather_error:
@@ -316,18 +323,23 @@ def _page_dots(screen, page):
         pygame.draw.circle(screen, T.MUTED if i == page else T.CARD_BORDER, (round(x), y), 3)
 
 
-def _badge(label, color, d):
-    key = ("badge", label, color, d)
+def _badge(label, color, d, diamond=False):
+    key = ("badge", label, color, d, diamond)
     if key not in _cache:
         S = d * 4
         s = pygame.Surface((S, S), pygame.SRCALPHA)
-        if len(label) <= 2:
+        if diamond:  # express service
+            h = S / 2
+            pygame.draw.polygon(s, color, [(h, 0), (S, h), (h, S), (0, h)])
+        elif len(label) <= 2:
             pygame.draw.circle(s, color, (S // 2, S // 2), S // 2)
         else:
             pygame.draw.rect(s, color, s.get_rect(), border_radius=S // 4)
         s = pygame.transform.smoothscale(s, (d, d))
         lum = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
-        size = 19 if len(label) == 1 else 15 if len(label) == 2 else 12
+        size = 19 if len(label) == 1 else 15 if len(label) == 2 else 11
+        if diamond:
+            size -= 2
         t = _text(label[:4], "bold", size, (12, 16, 24) if lum > 165 else (255, 255, 255))
         s.blit(t, t.get_rect(center=(d / 2, d / 2 + 0.5)))
         _cache[key] = s

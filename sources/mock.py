@@ -2,7 +2,7 @@
 
 Weather is produced as an Open-Meteo-shaped response and run through the real
 parser, so mock mode exercises the same code path as live mode.
-Scenarios: "normal", "delays", "rain", "night", "snow".
+Scenarios: "normal", "evening", "rain", "night", "snow".
 """
 
 from __future__ import annotations
@@ -11,35 +11,35 @@ import math
 from datetime import datetime, timedelta
 
 from .models import Departure
+from .trains import mta_subway
 from .weather import parse as parse_weather
 
+# (route id, destination, minutes away) — modelled on Jay St-MetroTech
 TRAINS = {
     "normal": [
-        ("A", "Downtown · Harbor Point", 2, 0, "2"),
-        ("C", "Northgate", 5, 0, "1"),
-        ("A", "Airport Terminal", 9, 0, "2"),
-        ("E", "Riverside Park", 14, 0, "3"),
-        ("C", "Northgate", 21, 0, "1"),
-        ("A", "Downtown · Harbor Point", 26, 0, "2"),
+        ("F", "Jamaica-179 St", 1),
+        ("A", "Inwood-207 St", 3),
+        ("R", "Forest Hills-71 Av", 6),
+        ("C", "168 St", 8),
+        ("FX", "Coney Island-Stillwell Av", 11),
+        ("A", "Far Rockaway-Mott Av", 13),
     ],
-    "delays": [
-        ("A", "Downtown · Harbor Point", 0, 0, "2"),
-        ("C", "Northgate", 6, 4, "1"),
-        ("E", "Riverside Park", 11, 0, "3"),
-        ("A", "Airport Terminal", 13, 0, "2", True),
-        ("C", "Northgate", 19, 12, "1"),
+    "evening": [
+        ("A", "Far Rockaway-Mott Av", 0),
+        ("F", "Coney Island-Stillwell Av", 4),
+        ("C", "Euclid Av", 5),
+        ("R", "Bay Ridge-95 St", 9),
+        ("A", "Ozone Park-Lefferts Blvd", 12),
     ],
 }
 TRAINS["rain"] = TRAINS["normal"]
-TRAINS["night"] = TRAINS["normal"][:3]
-TRAINS["snow"] = TRAINS["delays"]
-
-COLORS = {"A": "#4C8DFF", "C": "#35C48A", "E": "#F2A33A"}
+TRAINS["night"] = [("A", "Inwood-207 St", 7), ("F", "Jamaica-179 St", 12), ("R", "Forest Hills-71 Av", 19)]
+TRAINS["snow"] = TRAINS["evening"]
 
 # (base temp °F, daytime code, night code, rain hours from now)
 WEATHER = {
     "normal": (54, 2, 1, ()),
-    "delays": (61, 1, 0, ()),
+    "evening": (61, 1, 0, ()),
     "rain":   (49, 3, 3, (2, 3, 4, 5)),
     "night":  (43, 0, 0, ()),
     "snow":   (28, 73, 71, ()),
@@ -47,14 +47,13 @@ WEATHER = {
 
 
 def trains(now: datetime, scenario: str = "normal") -> list[Departure]:
+    routes = mta_subway.data()["routes"]
     out = []
-    for row in TRAINS.get(scenario, TRAINS["normal"]):
-        line, dest, mins, delay, plat, *rest = row
+    for route, dest, mins in TRAINS.get(scenario, TRAINS["normal"]):
         out.append(Departure(
-            line=line, destination=dest,
+            line=route.rstrip("X") if len(route) == 2 else route, destination=dest,
             depart_at=now + timedelta(minutes=mins, seconds=20),
-            delay_min=delay, platform=plat,
-            cancelled=bool(rest and rest[0]), color=COLORS.get(line),
+            color=routes.get(route, {}).get("color"), express=route.endswith("X"),
         ))
     return out
 

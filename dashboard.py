@@ -41,7 +41,7 @@ import icons  # noqa: E402
 import layout  # noqa: E402
 import theme  # noqa: E402
 from sources import mock, weather as weather_src  # noqa: E402
-from sources.trains import apply_line_colors, get_provider  # noqa: E402
+from sources.trains import get_provider  # noqa: E402
 
 HOT_MODULES = [theme, icons, layout]   # reload order matters: theme first
 PAGE_TIMEOUT = 30                      # seconds before returning to overview
@@ -54,6 +54,7 @@ class State:
     location: str = ""
     clock24: bool = False
     max_rows: int = 5
+    walk_minutes: int = 0
     page: int = 0
     departures: list | None = None
     weather: object | None = None
@@ -108,8 +109,7 @@ class Fetcher(threading.Thread):
 
     def _get_trains(self):
         tcfg = dict(self.cfg.get("trains", {}))
-        deps = self.provider.fetch(tcfg)
-        return apply_line_colors(deps, tcfg.get("line_colors", {}))
+        return self.provider.fetch(tcfg)
 
     def _get_weather(self):
         wcfg = dict(self.cfg.get("weather", {}))
@@ -170,7 +170,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", type=Path, default=ROOT / "config.toml")
     ap.add_argument("--mock", action="store_true", help="use fake train + weather data")
-    ap.add_argument("--scenario", help="mock scenario: normal, delays, rain, night, snow")
+    ap.add_argument("--scenario", help="mock scenario: normal, evening, rain, night, snow")
     ap.add_argument("--fullscreen", action="store_true", help="force fullscreen (default on the Pi)")
     args = ap.parse_args()
 
@@ -185,6 +185,7 @@ def main():
         location=disp.get("location_name", ""),
         clock24=disp.get("clock", "12h") == "24h",
         max_rows=tcfg.get("max_rows", 5),
+        walk_minutes=tcfg.get("walk_minutes", 0),
     )
 
     pygame.display.init()
