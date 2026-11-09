@@ -11,11 +11,20 @@ from datetime import datetime
 
 import pygame
 
+import re
+
 import icons
 import theme as T
+from sources.alerts import ordered as order_alerts
+from sources.trains import mta_subway
 
-PAGES = 2  # 0 = overview, 1 = 7-day forecast
 _cache: dict = {}
+BANNER_RECT = pygame.Rect(0, 0, 0, 0)   # where the alert banner was drawn (for taps)
+
+
+def pages(state) -> list[str]:
+    """Pages the user can tap through. The alerts page only exists when needed."""
+    return ["overview", "forecast"] + (["alerts"] if _alerts(state) else [])
 
 
 def draw(screen: pygame.Surface, state) -> None:
@@ -23,14 +32,22 @@ def draw(screen: pygame.Surface, state) -> None:
     _header(screen, state)
     top = 92
     body = pygame.Rect(T.PAD, top, T.W - 2 * T.PAD, T.H - top - T.PAD - 6)
-    if state.page == 1:
+    names = pages(state)
+    page = names[state.page % len(names)]
+    if page == "forecast":
         _forecast_page(screen, body, state)
+    elif page == "alerts":
+        _alerts_page(screen, body, state)
     else:
         split = 486
         _departures(screen, pygame.Rect(body.x, body.y, split - body.x, body.h), state)
         wx = split + T.GAP
         _weather(screen, pygame.Rect(wx, body.y, body.right - wx, body.h), state)
-    _page_dots(screen, state.page)
+    _page_dots(screen, state.page % len(names), len(names))
+
+
+def _alerts(state):
+    return order_alerts(list(state.weather_alerts) + list(state.subway_alerts), state.now)
 
 
 # ── header ────────────────────────────────────────────────────────────────
@@ -53,8 +70,18 @@ def _header(screen, state):
 
     x += 22
     pygame.draw.line(screen, T.DIVIDER, (x - 11, y + 16), (x - 11, y + 56), 1)
-    screen.blit(_text(now.strftime("%A"), "semibold", 19, T.TEXT), (x, y + 13))
-    screen.blit(_text(f"{now.strftime('%B')} {now.day}", "regular", 16, T.MUTED), (x, y + 37))
+    day = _text(now.strftime("%A"), "semibold", 19, T.TEXT)
+    date = _text(f"{now.strftime('%B')} {now.day}", "regular", 16, T.MUTED)
+    screen.blit(day, (x, y + 13))
+    screen.blit(date, (x, y + 37))
+
+    # alerts take over the right side of the header
+    alerts = _alerts(state)
+    if alerts:
+        left = x + max(day.get_width(), date.get_width()) + 22
+        _alert_banner(screen, pygame.Rect(left, 18, T.W - T.PAD - left, 58), alerts, state)
+        return
+    BANNER_RECT.update(0, 0, 0, 0)
 
     # "insight" chip on the right: the one thing worth knowing at a glance
     tip = _insight(state)
@@ -67,6 +94,69 @@ def _header(screen, state):
         screen.blit(_panel(r.w, r.h, r.h // 2, T.CARD, T.CARD_BORDER), r)
         screen.blit(ico, (r.x + 14, r.centery - ico.get_height() // 2))
         screen.blit(label, (r.x + 14 + ico.get_width() + 8, r.centery - label.get_height() // 2))
+
+
+def _alert_banner(screen, r, alerts, state):
+    i = state.alert_index % len(alerts)
+    a = alerts[i]
+    fill, edge, accent = _level_colors(a.level)
+    screen.blit(_panel(r.w, r.h, 14, fill, edge), r)
+    BANNER_RECT.update(r)
+
+    ico = _warn_icon(22, accent)
+    screen.blit(ico, (r.x + 12, r.y + 10))
+    tx = r.x + 44
+    right = r.right - 14
+    if len(alerts) > 1:
+        c = _text(f"{i + 1}/{len(alerts)}", "medium", 12, T.MUTED)
+        screen.blit(c, (right - c.get_width(), r.y + 10))
+        right -= c.get_width() + 10
+
+    meta = _alert_when(a, state)
+    prefix = ("Weather · " if a.source == "weather" else "") + meta
+    lines = _rich_lines(a.title, "semibold", 15, T.TEXT, right - tx, 2)
+    if len(lines) == 1:  # room for the timing underneath
+        _blit_rich(screen, lines[0], tx, r.y + 9)
+        screen.blit(_text(prefix, "medium", 13, accent), (tx, r.y + 32))
+    else:
+        for j, line in enumerate(lines):
+            _blit_rich(screen, line, tx, r.y + 8 + j * 21)
+
+
+def _level_colors(level):
+    """(fill, border, accent) for an alert level."""
+    if level == "severe":
+        return (54, 22, 30), (110, 42, 52), T.BAD
+    if level == "warning":
+        return (48, 38, 20), (98, 76, 34), T.WARN
+    return (22, 32, 52), (44, 62, 96), T.ACCENT
+
+
+def _alert_when(a, state) -> str:
+    now = state.now
+    if a.starts and a.starts > now:
+        until = f" – {_when(a.ends, state)}" if a.ends else ""
+        return f"From {_when(a.starts, state)}{until}"
+    if a.ends:
+        return f"Until {_when(a.ends, state)}"
+    return "Now"
+
+
+def _when(t, state) -> str:
+    """'3:30 PM', 'Tue 3:30 PM' (within a week) or 'Nov 18'."""
+    t = t.astimezone(state.now.tzinfo)
+    if state.clock24:
+        clock = t.strftime("%H:%M")
+    else:
+        clock = t.strftime("%I:%M").lstrip("0").removesuffix(":00") + t.strftime(" %p")
+    days = (t.date() - state.now.date()).days
+    if days == 0:
+        return clock
+    if days == 1:
+        return f"tomorrow {clock}"
+    if days < 7:
+        return f"{t.strftime('%a')} {clock}"
+    return f"{t.strftime('%b')} {t.day}"
 
 
 def _insight(state):
@@ -164,9 +254,14 @@ def _departure_row(screen, row, d, state, compact=False):
     bd = 30 if compact else 34          # badge diameter
     dest_size, sub_size = (18, 14) if compact else (19, 15)
 
-    # line badge
+    # line badge (+ amber dot if this line has a current service alert)
     badge = _badge(d.line, T.hex_color(d.color), bd, diamond=d.express)
-    screen.blit(badge, (row.x + 12, row.centery - bd // 2))
+    bx, by = row.x + 12, row.centery - bd // 2
+    screen.blit(badge, (bx, by))
+    if d.line in _troubled_lines(state):
+        cx, cy = bx + bd - 3, by + 3
+        pygame.draw.circle(screen, T.CARD, (cx, cy), 7)
+        pygame.draw.circle(screen, T.WARN, (cx, cy), 5)
 
     # destination + detail line
     tx = row.x + 12 + bd + 14
@@ -217,6 +312,10 @@ def _departure_row(screen, row, d, state, compact=False):
             pygame.draw.line(screen, T.FAINT, (nx - 3, sy), (rx + 2, sy), 2)
 
 
+def _troubled_lines(state) -> set:
+    return {r for a in state.subway_alerts if a.active(state.now) for r in a.routes}
+
+
 def _upcoming(deps, now, walk_minutes=0):
     """Trains you can still make, soonest first.
 
@@ -243,7 +342,14 @@ def _weather(screen, r, state):
         t = _text(msg, "medium", 16, T.MUTED)
         screen.blit(t, t.get_rect(center=r.center))
         return
-    if state.weather_error:
+    wa = [a for a in order_alerts(state.weather_alerts, state.now) if a.active(state.now)]
+    if wa:
+        _, _, accent = _level_colors(wa[0].level)
+        label = _fit(wa[0].title, "semibold", 12, accent, r.w - 130)
+        lx = r.right - 18 - label.get_width()
+        screen.blit(label, (lx, r.y + 18))
+        screen.blit(_warn_icon(14, accent), (lx - 19, r.y + 18))
+    elif state.weather_error:
         _status(screen, r.right - 20, r.y + 20, state.weather_updated, state.weather_error, state.now, compact=True)
 
     # current conditions
@@ -339,6 +445,142 @@ def _forecast_page(screen, r, state):
             pygame.draw.circle(screen, T.TEXT, (round(m), cy), 4)
 
 
+# ── alerts page ───────────────────────────────────────────────────────────
+
+def _alerts_page(screen, r, state):
+    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    ix = r.x + 22
+    screen.blit(_tracked("ALERTS", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
+    alerts = _alerts(state)
+    y = r.y + 44
+    bottom = r.bottom - 14
+    shown = 0
+    for a in alerts:
+        _, _, accent = _level_colors(a.level)
+        title = _rich_lines(a.title, "semibold", 17, T.TEXT, r.w - 90, 2)
+        body = _rich_lines(a.body, "regular", 14, T.MUTED, r.w - 90, 2) if a.body else []
+        h = 8 + len(title) * 23 + 20 + len(body) * 19 + 10
+        if y + h > bottom and shown:
+            more = _text(f"+{len(alerts) - shown} more", "medium", 14, T.MUTED)
+            screen.blit(more, (r.right - 22 - more.get_width(), r.y + 18))
+            break
+        if shown:
+            pygame.draw.line(screen, T.DIVIDER, (ix, y), (r.right - 22, y), 1)
+        screen.blit(_warn_icon(24, accent), (ix, y + 10))
+        tx, ty = ix + 40, y + 8
+        for line in title:
+            _blit_rich(screen, line, tx, ty)
+            ty += 23
+        src = "Weather alert" if a.source == "weather" else "Subway"
+        meta = _text(f"{src} · {_alert_when(a, state)}", "medium", 13, accent)
+        screen.blit(meta, (tx, ty + 1))
+        ty += 20
+        for line in body:
+            _blit_rich(screen, line, tx, ty)
+            ty += 19
+        y += h
+        shown += 1
+
+
+def _warn_icon(d, color):
+    """Rounded warning triangle with an exclamation mark."""
+    key = ("warn", d, color)
+    if key not in _cache:
+        S = d * 4
+        s = pygame.Surface((S, S), pygame.SRCALPHA)
+        pts = [(S / 2, S * 0.08), (S * 0.96, S * 0.9), (S * 0.04, S * 0.9)]
+        pygame.draw.polygon(s, color, pts)
+        for p in pts:  # soften the corners
+            pygame.draw.circle(s, color, (round(p[0]), round(p[1])), round(S * 0.06))
+        ink = (20, 16, 10)
+        pygame.draw.line(s, ink, (S / 2, S * 0.38), (S / 2, S * 0.62), max(2, round(S * 0.1)))
+        pygame.draw.circle(s, ink, (round(S / 2), round(S * 0.76)), round(S * 0.06))
+        _cache[key] = pygame.transform.smoothscale(s, (d, d))
+    return _cache[key]
+
+
+# ── rich text: words + inline line badges ("[N] trains are delayed") ──────
+
+_TOKEN = re.compile(r"\[([^\]]+)\]")
+
+
+def _route_badge_color(name):
+    routes = mta_subway.data()["routes"]
+    info = routes.get(name) or next((v for v in routes.values() if v["name"] == name), None)
+    return T.hex_color(info["color"]) if info else None
+
+
+def _rich_tokens(text):
+    """Split text into (kind, value, glued) tokens: kind 't' = word, 'b' = line badge.
+
+    ``glued`` means no space before it (punctuation right after a badge: "[R].").
+    """
+    out = []
+
+    def words(chunk):
+        for j, w in enumerate(chunk.split()):
+            out.append(("t", w, j == 0 and bool(out) and not chunk[:1].isspace()))
+
+    pos = 0
+    for m in _TOKEN.finditer(text):
+        words(text[pos:m.start()])
+        inner = m.group(1).strip()
+        if _route_badge_color(inner) is not None:
+            out.append(("b", inner, False))
+        elif "shuttle bus" in inner.lower():
+            out.append(("t", "shuttle bus", False))
+        elif "accessibility" not in inner.lower():
+            words(inner)
+        pos = m.end()
+    words(text[pos:])
+    return out
+
+
+def _rich_lines(text, face, size, color, max_w, max_lines):
+    """Word-wrap into at most ``max_lines`` lines of rendered pieces, with an ellipsis if cut."""
+    f = T.font(face, size)
+    space = f.size(" ")[0]
+    bd = round(size * 1.15)
+    lines, cur, w = [], [], 0
+    for kind, val, glued in _rich_tokens(text):
+        piece = _badge(val, _route_badge_color(val), bd) if kind == "b" else _text(val, face, size, color)
+        if glued and cur:  # stick to the previous piece
+            merged = pygame.Surface((cur[-1].get_width() + piece.get_width() + 1,
+                                     max(cur[-1].get_height(), piece.get_height())), pygame.SRCALPHA)
+            merged.blit(cur[-1], (0, (merged.get_height() - cur[-1].get_height()) // 2))
+            merged.blit(piece, (cur[-1].get_width() + 1, (merged.get_height() - piece.get_height()) // 2))
+            w += piece.get_width() + 1
+            cur[-1] = merged
+            continue
+        pw = piece.get_width() + (space if cur else 0)
+        if cur and w + pw > max_w:
+            lines.append(cur)
+            if len(lines) == max_lines:
+                last = lines[-1]
+                ell = _text("…", face, size, color)
+                while last and sum(p.get_width() + space for p in last) + ell.get_width() > max_w:
+                    last.pop()
+                last.append(ell)
+                return lines
+            cur, w = [], 0
+            pw = piece.get_width()
+        cur.append(piece)
+        w += pw
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _blit_rich(screen, pieces, x, y):
+    if not pieces:
+        return
+    h = max(p.get_height() for p in pieces)
+    space = 4
+    for p in pieces:
+        screen.blit(p, (x, y + (h - p.get_height()) // 2))
+        x += p.get_width() + space
+
+
 def _temp_color(t):
     return T.mix(T.TEMP_COLD, T.TEMP_MILD, t * 2) if t < 0.5 else T.mix(T.TEMP_MILD, T.TEMP_WARM, (t - 0.5) * 2)
 
@@ -361,10 +603,10 @@ def _status(screen, right, y, updated, error, now, compact=False):
     pygame.draw.circle(screen, color, (right - t.get_width() - 10, y + t.get_height() // 2 - 1), 4)
 
 
-def _page_dots(screen, page):
+def _page_dots(screen, page, count):
     cx, y = T.W // 2, T.H - 13
-    for i in range(PAGES):
-        x = cx + (i - (PAGES - 1) / 2) * 14
+    for i in range(count):
+        x = cx + (i - (count - 1) / 2) * 14
         pygame.draw.circle(screen, T.MUTED if i == page else T.CARD_BORDER, (round(x), y), 3)
 
 
@@ -382,9 +624,9 @@ def _badge(label, color, d, diamond=False):
             pygame.draw.rect(s, color, s.get_rect(), border_radius=S // 4)
         s = pygame.transform.smoothscale(s, (d, d))
         lum = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
-        size = 19 if len(label) == 1 else 15 if len(label) == 2 else 11
+        size = round(d * (0.56 if len(label) == 1 else 0.44 if len(label) == 2 else 0.33))
         if diamond:
-            size -= 2
+            size = round(size * 0.88)
         t = _text(label[:4], "bold", size, (12, 16, 24) if lum > 165 else (255, 255, 255))
         s.blit(t, t.get_rect(center=(d / 2, d / 2 + 0.5)))
         _cache[key] = s

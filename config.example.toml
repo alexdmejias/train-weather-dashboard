@@ -35,6 +35,12 @@
 # max_rows = 5                   # total rows across both directions
 # refresh_seconds = 30
 
+[alerts]
+# subway = true                  # MTA delays, suspensions and planned work on your lines
+# weather = true                 # National Weather Service advisories, watches, warnings
+# upcoming_hours = 12            # also show planned work starting within this many hours
+# rotate_seconds = 8             # the header banner cycles through alerts this often
+
 # Section titles ("To Manhattan" / "To Queens") — keep this table last:
 # [subway.direction_labels]
 # S = "Manhattan"

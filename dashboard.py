@@ -9,7 +9,8 @@ laptop it opens an 800×480 window. layout.py, theme.py and icons.py are
 reloaded automatically when they change, so you can tweak the design live.
 
 Keys (laptop): ←/→ or click = switch page · R = refresh data · Q/Esc = quit
-Touch (Pi): tap = switch page · it returns to the overview after 30 s
+Touch (Pi): tap = switch page · tap the alert banner = alert details ·
+            it returns to the overview after 30 s
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ import config  # noqa: E402
 import icons  # noqa: E402
 import layout  # noqa: E402
 import theme  # noqa: E402
-from sources import mock, weather as weather_src  # noqa: E402
+from sources import alerts as alerts_src, mock, weather as weather_src  # noqa: E402
 from sources.trains import mta_subway  # noqa: E402
 
 HOT_MODULES = [theme, icons, layout]   # reload order matters: theme first
@@ -61,10 +62,28 @@ class State:
     page: int = 0
     departures: list | None = None
     weather: object | None = None
-    trains_updated: datetime | None = None
-    weather_updated: datetime | None = None
-    trains_error: str | None = None
-    weather_error: str | None = None
+    subway_alerts: list = field(default_factory=list)
+    weather_alerts: list = field(default_factory=list)
+    updated: dict = field(default_factory=dict)   # source name → datetime of last success
+    errors: dict = field(default_factory=dict)    # source name → last error message
+    alert_index: int = 0                          # which alert the header banner shows
+
+    # convenience views used by the layout
+    @property
+    def trains_updated(self):
+        return self.updated.get("trains")
+
+    @property
+    def weather_updated(self):
+        return self.updated.get("weather")
+
+    @property
+    def trains_error(self):
+        return self.errors.get("trains")
+
+    @property
+    def weather_error(self):
+        return self.errors.get("weather")
     version: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -72,32 +91,42 @@ class State:
 # ── background data fetching ──────────────────────────────────────────────
 
 class Fetcher(threading.Thread):
-    """Polls the APIs on their own schedules without blocking the screen."""
+    """Polls each data source on its own schedule without blocking the screen.
+
+    A failed fetch keeps the last good data on screen and retries in a minute.
+    """
 
     def __init__(self, cfg: dict, state: State, scenario: str | None):
         super().__init__(daemon=True)
         self.cfg, self.state, self.scenario = cfg, state, scenario  # scenario set → mock data
-        self.train_every = cfg["subway"]["refresh_seconds"]
-        self.weather_every = cfg["weather"]["refresh_minutes"] * 60
+        al = cfg["alerts"]
+        # name → (fetch function, state attribute, seconds between updates)
+        self.tasks = {
+            "trains": (self._get_trains, "departures", cfg["subway"]["refresh_seconds"]),
+            "weather": (self._get_weather, "weather", cfg["weather"]["refresh_minutes"] * 60),
+        }
+        if al["subway"]:
+            self.tasks["subway_alerts"] = (self._get_subway_alerts, "subway_alerts", 120)
+        if al["weather"]:
+            self.tasks["weather_alerts"] = (self._get_weather_alerts, "weather_alerts", 300)
+        self.due = {name: 0.0 for name in self.tasks}
         self.wake = threading.Event()
-        self.next_train = self.next_weather = 0.0
+        self._station_ids = None
 
     def refresh_now(self):
-        self.next_train = self.next_weather = 0.0
+        self.due = {name: 0.0 for name in self.tasks}
         self.wake.set()
 
     def run(self):
         while True:
-            t = time.monotonic()
-            if t >= self.next_train:
-                self._update("trains", self._get_trains)
-                self.next_train = t + self.train_every
-            if t >= self.next_weather:
-                ok = self._update("weather", self._get_weather)
-                # retry sooner after a failure
-                self.next_weather = t + (self.weather_every if ok else 60)
-            self.wake.wait(max(1.0, min(self.next_train, self.next_weather) - time.monotonic()))
+            for name, (fn, attr, every) in self.tasks.items():
+                if time.monotonic() >= self.due[name]:
+                    ok = self._update(name, fn, attr)
+                    self.due[name] = time.monotonic() + (every if ok else min(every, 60))
+            self.wake.wait(max(1.0, min(self.due.values()) - time.monotonic()))
             self.wake.clear()
+
+    # ── sources ──
 
     def _near(self):
         """Configured location, or None if it can't be resolved yet (offline)."""
@@ -109,6 +138,11 @@ class Fetcher(threading.Thread):
         if name and not self.state.location:
             self.state.location = name
         return lat, lon
+
+    def _stations(self):
+        if self._station_ids is None:
+            self._station_ids = mta_subway.resolve_stations(self.cfg["subway"]["stations"], self._near())
+        return self._station_ids
 
     def _get_trains(self):
         if self.scenario:
@@ -123,19 +157,33 @@ class Fetcher(threading.Thread):
             raise RuntimeError("location not resolved yet")
         return weather_src.fetch(*near, units=self.cfg["display"]["units"])
 
-    def _update(self, what, fn) -> bool:
+    def _get_subway_alerts(self):
+        if self.scenario:
+            return mock.subway_alerts(datetime.now().astimezone(), self.scenario)
+        sub = self.cfg["subway"]
+        return alerts_src.fetch_subway(self._stations(), sub["routes"], self.cfg["alerts"]["upcoming_hours"])
+
+    def _get_weather_alerts(self):
+        if self.scenario:
+            return mock.weather_alerts(datetime.now().astimezone(), self.scenario)
+        near = self._near()
+        if near is None:
+            raise RuntimeError("location not resolved yet")
+        return alerts_src.fetch_weather(*near)
+
+    def _update(self, name, fn, attr) -> bool:
         try:
             value = fn()
         except Exception as e:  # keep showing the last good data
-            print(f"[{what}] {type(e).__name__}: {e}", flush=True)
+            print(f"[{name}] {type(e).__name__}: {e}", flush=True)
             with self.state.lock:
-                setattr(self.state, f"{what}_error", str(e))
+                self.state.errors[name] = str(e)
                 self.state.version += 1
             return False
         with self.state.lock:
-            setattr(self.state, "departures" if what == "trains" else "weather", value)
-            setattr(self.state, f"{what}_updated", datetime.now().astimezone())
-            setattr(self.state, f"{what}_error", None)
+            setattr(self.state, attr, value)
+            self.state.updated[name] = datetime.now().astimezone()
+            self.state.errors.pop(name, None)
             self.state.version += 1
         return True
 
@@ -233,13 +281,21 @@ def main():
                     fetcher.refresh_now()
                 elif ev.key in (pygame.K_RIGHT, pygame.K_LEFT, pygame.K_SPACE):
                     step = -1 if ev.key == pygame.K_LEFT else 1
-                    state.page = (state.page + step) % layout.PAGES
+                    state.page = (state.page + step) % len(layout.pages(state))
                     last_touch, force = time.monotonic(), True
             elif ev.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
                 # touchscreens send both; ignore the synthesized mouse event
                 if ev.type == pygame.MOUSEBUTTONDOWN and getattr(ev, "touch", False):
                     continue
-                state.page = (state.page + 1) % layout.PAGES
+                if ev.type == pygame.FINGERDOWN:
+                    pos = (ev.x * theme.W, ev.y * theme.H)  # finger coordinates are 0–1
+                else:
+                    pos = ev.pos
+                names = layout.pages(state)
+                if layout.BANNER_RECT.collidepoint(pos) and "alerts" in names:
+                    state.page = names.index("alerts")      # tap the alert banner → details
+                else:
+                    state.page = (state.page + 1) % len(names)
                 last_touch, force = time.monotonic(), True
 
         if state.page and time.monotonic() - last_touch > PAGE_TIMEOUT:
@@ -249,8 +305,14 @@ def main():
             force = True
 
         now = datetime.now().astimezone()
-        # redraw on data change, page change, reload, or when the minute ticks
-        key = (state.version, now.strftime("%H:%M"), state.page)
+        # the header banner cycles through alerts
+        state.alert_index = int(time.time() // max(1, cfg["alerts"]["rotate_seconds"]))
+        n_pages = len(layout.pages(state))
+        if state.page >= n_pages:  # alerts page vanished because the alerts cleared
+            state.page = 0
+        # redraw on data change, page change, reload, banner rotation, or when the minute ticks
+        rotation = state.alert_index if (state.subway_alerts or state.weather_alerts) else 0
+        key = (state.version, now.strftime("%H:%M"), state.page, rotation)
         if force or key != drawn:
             state.now = now
             with state.lock:

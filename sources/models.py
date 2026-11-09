@@ -51,3 +51,17 @@ class Weather:
     daily: list[DayForecast] = field(default_factory=list)
     unit: str = "°"
     wind_unit: str = "mph"
+
+
+@dataclass
+class Alert:
+    source: str                    # "subway" or "weather"
+    title: str                     # one line; may contain [N]-style route tokens
+    body: str = ""                 # longer description
+    level: str = "warning"         # "severe" (red), "warning" (amber) or "info"
+    routes: list[str] = field(default_factory=list)   # affected lines (subway)
+    starts: datetime | None = None
+    ends: datetime | None = None
+
+    def active(self, now: datetime) -> bool:
+        return (self.starts is None or self.starts <= now) and (self.ends is None or now < self.ends)

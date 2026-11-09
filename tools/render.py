@@ -38,6 +38,8 @@ SHOTS = [
     ("night", 0, (22, 6), "overview-night.png"),
     ("normal", 1, (8, 42), "forecast.png"),
     ("snow", 0, (7, 33), "overview-snow.png"),
+    ("alerts", 0, (8, 17), "overview-alerts.png"),
+    ("alerts", 2, (8, 17), "alerts.png"),
 ]
 
 
@@ -47,11 +49,12 @@ def render(scenario, page, hm, out: Path, scale=1, offline=False):
         now=now, station="Steinway St & Broadway", location="Astoria", multi_station=True,
         direction_labels={"S": "Manhattan", "N": "Queens"}, page=page,
         departures=mock.trains(now, scenario), weather=mock.weather(now, scenario),
-        trains_updated=now - timedelta(seconds=20), weather_updated=now - timedelta(minutes=4),
+        subway_alerts=mock.subway_alerts(now, scenario), weather_alerts=mock.weather_alerts(now, scenario),
+        updated={"trains": now - timedelta(seconds=20), "weather": now - timedelta(minutes=4)},
     )
     if offline:
-        state.trains_error = "timeout"
-        state.trains_updated = now - timedelta(minutes=6)
+        state.errors["trains"] = "timeout"
+        state.updated["trains"] = now - timedelta(minutes=6)
     surf = pygame.Surface((theme.W, theme.H))
     layout.draw(surf, state)
     if scale != 1:

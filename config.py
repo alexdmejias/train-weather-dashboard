@@ -49,6 +49,12 @@ DEFAULTS: dict = {
         "max_rows": 5,
         "refresh_seconds": 30,
     },
+    "alerts": {
+        "subway": True,               # MTA delays, suspensions and planned work on your lines
+        "weather": True,              # National Weather Service advisories/watches/warnings
+        "upcoming_hours": 12,         # also show planned work starting within this many hours
+        "rotate_seconds": 8,          # header banner cycles through alerts this often
+    },
 }
 
 # Zips known offline so the defaults work before the network is up.

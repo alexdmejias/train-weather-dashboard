@@ -2,7 +2,7 @@
 
 Weather is produced as an Open-Meteo-shaped response and run through the real
 parser, so mock mode exercises the same code path as live mode.
-Scenarios: "normal", "evening", "rain", "night", "snow".
+Scenarios: "normal", "evening", "rain", "night", "snow", "alerts".
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timedelta
 
-from .models import Departure
+from .models import Alert, Departure
 from .trains import mta_subway
 from .weather import parse as parse_weather
 
@@ -48,6 +48,7 @@ TRAINS = {
     ],
 }
 TRAINS["rain"] = TRAINS["normal"]
+TRAINS["alerts"] = TRAINS["normal"]
 TRAINS["snow"] = TRAINS["evening"]
 
 # (base temp °F, daytime code, night code, rain hours from now)
@@ -55,6 +56,7 @@ WEATHER = {
     "normal": (54, 2, 1, ()),
     "evening": (61, 1, 0, ()),
     "rain":   (49, 3, 3, (2, 3, 4, 5)),
+    "alerts": (49, 61, 61, (0, 1, 2, 3, 4)),
     "night":  (43, 0, 0, ()),
     "snow":   (28, 73, 71, ()),
 }
@@ -118,3 +120,35 @@ def weather(now: datetime, scenario: str = "normal"):
         "daily": daily,
     }
     return parse_weather(data, now=now)
+
+
+def subway_alerts(now: datetime, scenario: str = "normal") -> list[Alert]:
+    if scenario != "alerts":
+        return []
+    today = now.replace(second=0, microsecond=0)
+    return [
+        Alert(
+            source="subway", level="warning", routes=["N", "W"],
+            title="[N] and [W] trains are running with delays in both directions "
+                  "while we address a signal problem at 39 Av-Dutch Kills.",
+            body="Expect longer waits. For service to Manhattan, consider the [M] or [R] at Steinway St.",
+        ),
+        Alert(
+            source="subway", level="info", routes=["R"],
+            title="Manhattan-bound [R] trains skip 65 St, Northern Blvd and 46 St.",
+            body="Track maintenance. For service to these stations, take the [R] to Steinway St "
+                 "and transfer to a Forest Hills-bound [R].",
+            starts=today.replace(hour=10, minute=0), ends=today.replace(hour=15, minute=0),
+        ),
+    ]
+
+
+def weather_alerts(now: datetime, scenario: str = "normal") -> list[Alert]:
+    if scenario != "alerts":
+        return []
+    return [Alert(
+        source="weather", level="warning", title="Flood Advisory",
+        body="Minor flooding of low-lying and poor drainage areas expected. Rainfall rates of "
+             "1 inch per hour possible. Turn around, don't drown when encountering flooded roads.",
+        starts=now - timedelta(hours=1), ends=now.replace(hour=13, minute=0, second=0, microsecond=0),
+    )]

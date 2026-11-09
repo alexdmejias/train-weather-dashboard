@@ -124,3 +124,70 @@ def test_rows_split_between_directions():
     assert layout._allocate([1, 4], 5) == [1, 4]      # unused rows go to the other side
     assert layout._allocate([6, 0], 5) == [5, 0]
     assert layout._allocate([2], 5) == [2]
+
+
+# ── alerts ────────────────────────────────────────────────────────────────
+
+def _alerts_feed(now):
+    from google.transit import gtfs_realtime_pb2 as g
+    feed = g.FeedMessage()
+    feed.header.gtfs_realtime_version = "1.0"
+    ts = int(now.timestamp())
+
+    def alert(header, routes=(), stops=(), periods=((None, None),)):
+        a = feed.entity.add(id=str(len(feed.entity))).alert
+        for r in routes:
+            a.informed_entity.add(agency_id="MTASBWY", route_id=r)
+        for st in stops:
+            a.informed_entity.add(agency_id="MTASBWY", stop_id=st)
+        for s, e in periods:
+            p = a.active_period.add()
+            if s is not None:
+                p.start = ts + s * 3600
+            if e is not None:
+                p.end = ts + e * 3600
+        a.header_text.translation.add(text=header, language="en")
+        a.header_text.translation.add(text=f"<p>{header}</p>", language="en-html")
+        a.description_text.translation.add(text="Details here.", language="en")
+
+    alert("[N] [W] delays", routes=["N", "W"], periods=((-1, None),))           # now
+    alert("[R] skips stops", routes=["R"], periods=((3, 6),))                   # starts in 3 h
+    alert("[M] weekend work", routes=["M"], periods=((48, 60),))                # too far ahead
+    alert("[7] delays", routes=["7"])                                           # not our line
+    alert("Steinway St elevator", stops=["G19N"])                               # our station
+    alert("[N] old problem", routes=["N"], periods=((-5, -1),))                 # already over
+    return feed.SerializeToString()
+
+
+def test_subway_alerts_filtered_to_our_lines_and_time():
+    from sources import alerts
+    now = datetime(2026, 11, 9, 8, 17, tzinfo=TZ)
+    got = alerts.parse_subway(_alerts_feed(now), ["G19", "R05"], now=now)
+    titles = {a.title: a for a in got}
+    assert set(titles) == {"[N] [W] delays", "[R] skips stops", "Steinway St elevator"}
+    assert titles["[N] [W] delays"].routes == ["N", "W"] and titles["[N] [W] delays"].level == "warning"
+    assert titles["[R] skips stops"].level == "info" and not titles["[R] skips stops"].active(now)
+    assert titles["[N] [W] delays"].body == "Details here."
+    # a routes filter drops lines you don't ride
+    got = alerts.parse_subway(_alerts_feed(now), ["G19", "R05"], route_filter=["N", "W"], now=now)
+    assert {a.title for a in got} == {"[N] [W] delays", "Steinway St elevator"}
+
+
+def test_nws_alerts():
+    from sources import alerts
+    now = datetime(2026, 11, 9, 8, 17, tzinfo=TZ)
+    data = {"features": [
+        {"properties": {"status": "Actual", "messageType": "Alert", "event": "Flood Advisory",
+                        "severity": "Moderate", "description": "Minor  flooding.", "instruction": "Avoid roads.",
+                        "onset": "2026-11-09T07:00:00-05:00", "ends": "2026-11-09T13:00:00-05:00"}},
+        {"properties": {"status": "Actual", "messageType": "Update", "event": "Wind Warning",
+                        "severity": "Severe", "expires": "2026-11-09T20:00:00-05:00"}},
+        {"properties": {"status": "Test", "event": "Test Message", "severity": "Minor"}},
+        {"properties": {"status": "Actual", "messageType": "Alert", "event": "Old Advisory",
+                        "severity": "Minor", "ends": "2026-11-09T06:00:00-05:00"}},
+    ]}
+    got = alerts.parse_nws(data, now=now)
+    assert [(a.title, a.level) for a in got] == [("Flood Advisory", "warning"), ("Wind Warning", "severe")]
+    assert got[0].body == "Minor flooding. Avoid roads."
+    # severe weather outranks everything else
+    assert alerts.ordered(got, now)[0].title == "Wind Warning"

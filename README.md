@@ -10,6 +10,8 @@ Zero W and an 800×480 touchscreen (built for the Elecrow 5" HDMI panel).
 | ![](docs/screenshots/overview-rain.png) | ![](docs/screenshots/overview-evening.png) |
 | **Night** | **7-day forecast** (tap to switch) |
 | ![](docs/screenshots/overview-night.png) | ![](docs/screenshots/forecast.png) |
+| **Service & weather alerts** | **Alert details** (tap the banner) |
+| ![](docs/screenshots/overview-alerts.png) | ![](docs/screenshots/alerts.png) |
 
 ## Why it's built this way
 
@@ -23,6 +25,19 @@ minute ticks or new data arrives.
   downloaded. Each train shows its line (◆ diamond = express), its real
   destination, and minutes until it arrives.
 - **Weather:** [Open-Meteo](https://open-meteo.com) — free, no API key.
+- **Alerts:** MTA service alerts (delays, suspensions, planned work) for the
+  lines at your stations, and [National Weather Service](https://www.weather.gov/documentation/services-web-api)
+  advisories/watches/warnings for your location — both free, no key.
+
+### Alerts
+
+When something is going on, a colour-coded banner takes over the top right
+(red = severe weather, amber = current problem, blue = planned work starting
+soon) and cycles through alerts every 8 s. Lines with a current problem get an
+amber dot on their badge, and active weather alerts are flagged on the weather
+card. Tap the banner for an **Alerts** page with the full details; that page
+only exists while there are alerts. Planned work shows up to 12 hours before it
+starts (`[alerts] upcoming_hours`).
 
 ## Configuration
 
@@ -65,7 +80,7 @@ is built from the MTA's static schedule. Refresh it occasionally with
 ```bash
 pip install -r requirements.txt
 python3 dashboard.py --mock                    # 800×480 window, fake data
-python3 dashboard.py --mock --scenario evening # also: rain, night, snow
+python3 dashboard.py --mock --scenario evening # also: rain, night, snow, alerts
 ```
 
 `layout.py`, `theme.py` and `icons.py` **hot-reload on save** — keep the
@@ -125,7 +140,7 @@ layout.py           everything drawn on screen            (hot-reloaded)
 theme.py            colours, fonts, spacing               (hot-reloaded)
 icons.py            weather icons drawn in code           (hot-reloaded)
 config.py           settings + defaults (config.toml overrides)
-sources/            Open-Meteo weather, MTA subway feed, mock data
+sources/            Open-Meteo weather, MTA subway + alerts, NWS alerts, mock data
 data/subway.json    station + line table built from the MTA static GTFS
 tools/render.py     headless PNG renderer
 tools/find_station.py   look up station ids
