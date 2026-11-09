@@ -8,6 +8,8 @@
 # location_name = "Astoria"      # weather card label (default: looked up from the zip)
 # rotate = "auto"                # degrees clockwise; "auto" turns a portrait HyperPixel 4.0
                                  # to landscape — use 270 if it's upside down
+# page_seconds = 30              # screens advance on their own this often (0 = never);
+                                 # Space moves on immediately and restarts the timer
 
 [weather]
 # zip = "11106"                  # any US zip code

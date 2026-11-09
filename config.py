@@ -31,6 +31,9 @@ DEFAULTS: dict = {
         # as the HyperPixel 4.0 (480×800) get turned to landscape automatically.
         # Use 270 if your HyperPixel shows upside down.
         "rotate": "auto",
+        # Screens advance on their own every this many seconds (0 = never).
+        # Space bar / any button press also moves on and restarts the timer.
+        "page_seconds": 30,
     },
     "weather": {
         "zip": "11106",               # US zip code …

@@ -52,6 +52,7 @@ def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None):
         subway_alerts=mock.subway_alerts(now, scenario), weather_alerts=mock.weather_alerts(now, scenario),
         updated={"trains": now - timedelta(seconds=20), "weather": now - timedelta(minutes=4)},
     )
+    state.page_progress = 0.4  # auto-advance countdown, part way through
     if toast:
         state.toast = (toast, 0)
     if offline:

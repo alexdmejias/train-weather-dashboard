@@ -123,7 +123,13 @@ python3 dashboard.py --fullscreen              # fill the screen instead of an 8
 window open and tweak the design live. A layout bug shows an error screen
 instead of crashing; fix it and save again.
 
-Keys: `←`/`→` or click switches page · `R` refreshes data · `Q` quits.
+**Screens advance on their own every 30 s** (Departures → Forecast → Alerts,
+when there are any). Press **Space** to move on immediately — that also
+restarts the timer. The tabs along the bottom show which screen is up and how
+long until the next one. Change the interval with `[display] page_seconds`
+(`0` turns auto-advance off).
+
+Other keys: `R` refreshes data · `Q` quits.
 
 Render PNGs without a screen (used for the images above):
 
@@ -199,7 +205,8 @@ to `/boot/firmware/config.txt` (instead of the Elecrow lines) and reboot.
   (`[buttons] i2c_bus = "auto"`); the official `buttonshim` library isn't
   used because it only works on bus 1.
 
-On a laptop, keys **1–5** act as buttons A–E, and `--portrait` opens a
+Space works here too (e.g. from a USB keyboard or macro pad). On a laptop,
+keys **1–5** act as buttons A–E, and `--portrait` opens a
 480×800 window to preview the rotation.
 
 | Button press confirmation | What's sent to the portrait panel |

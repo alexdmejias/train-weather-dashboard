@@ -8,12 +8,12 @@ On a Raspberry Pi it draws straight to the display (no desktop needed). On a
 laptop it opens an 800×480 window. layout.py, theme.py and icons.py are
 reloaded automatically when they change, so you can tweak the design live.
 
-Keys (laptop): ←/→ or click = switch page · 1–5 = Button SHIM A–E ·
-               R = refresh data · Q/Esc = quit
+Space = next screen (screens also advance on their own every 30 s) ·
+               1–5 = Button SHIM A–E · R = refresh data · Q/Esc = quit
 Touch (Elecrow): tap = switch page · tap the alert banner = alert details
 Button SHIM (HyperPixel): A departures · B forecast · C alerts · D refresh ·
                E sleep/wake (configurable in [buttons])
-Any page returns to the departures after 30 s.
+Any key, button or tap restarts the 30 s timer.
 """
 
 from __future__ import annotations
@@ -51,7 +51,6 @@ from sources.trains import mta_subway  # noqa: E402
 
 HOT_MODULES = [theme, icons, layout]   # reload order matters: theme first
 BUTTON_EVENT = pygame.USEREVENT + 1
-PAGE_TIMEOUT = 30                      # seconds before returning to overview
 
 
 @dataclass
@@ -76,6 +75,7 @@ class State:
     alert_offset: int = 0                         # skipped ahead with a button
     toast: tuple | None = None                    # (message, hide at monotonic time)
     asleep: bool = False                          # screen blanked
+    page_progress: float | None = None            # 0–1 until the next auto-advance (None = off)
 
     # convenience views used by the layout
     @property
@@ -292,12 +292,13 @@ def main():
 
     clock = pygame.time.Clock()
     drawn = None
-    last_input = time.monotonic()
+    page_seconds = disp["page_seconds"]       # auto-advance interval; 0 = stay put
+    page_started = time.monotonic()
 
     def act(action: str, label: str | None = None):
         """Run a named action (from a button, key or tap)."""
-        nonlocal last_input
-        last_input = time.monotonic()
+        nonlocal page_started
+        page_started = time.monotonic()       # any input restarts the auto-advance timer
         names = layout.pages(state)
         if state.asleep:            # any input wakes the screen and does nothing else
             state.asleep = False
@@ -335,7 +336,9 @@ def main():
                     running[0] = False
                 elif ev.key == pygame.K_r:
                     act("refresh", "Refreshing")
-                elif ev.key in (pygame.K_RIGHT, pygame.K_SPACE):
+                elif ev.key == pygame.K_SPACE:      # the one key: next screen
+                    act("next_page")
+                elif ev.key == pygame.K_RIGHT:
                     act("next_page")
                 elif ev.key == pygame.K_LEFT:
                     act("prev_page")
@@ -354,9 +357,12 @@ def main():
                 else:
                     act("next_page")
 
-        idle = time.monotonic() - last_input
-        if state.page and idle > PAGE_TIMEOUT:
-            state.page = 0
+        # auto-advance: Departures → Forecast → (Alerts) → Departures …
+        elapsed = time.monotonic() - page_started
+        if page_seconds and not state.asleep and elapsed >= page_seconds:
+            state.page = (state.page + 1) % len(layout.pages(state))
+            page_started, elapsed = time.monotonic(), 0.0
+        state.page_progress = min(1.0, elapsed / page_seconds) if page_seconds else None
         if state.toast and time.monotonic() > state.toast[1]:
             state.toast = None
 
@@ -369,7 +375,9 @@ def main():
             state.page = 0
         # redraw on data/page/toast changes, reloads, banner rotation, or when the minute ticks
         rotation = state.alert_index if (state.subway_alerts or state.weather_alerts) else 0
-        key = (state.version, now.strftime("%H:%M"), state.page, rotation, state.toast, state.asleep)
+        # the countdown bar moves in 2-second steps — cheap enough for a Pi Zero
+        tick = int(elapsed // 2) if page_seconds else 0
+        key = (state.version, now.strftime("%H:%M"), state.page, rotation, state.toast, state.asleep, tick)
         if reloaded or key != drawn:
             state.now = now
             with state.lock:

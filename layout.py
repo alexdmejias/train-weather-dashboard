@@ -43,7 +43,7 @@ def draw(screen: pygame.Surface, state) -> None:
         _departures(screen, pygame.Rect(body.x, body.y, split - body.x, body.h), state)
         wx = split + T.GAP
         _weather(screen, pygame.Rect(wx, body.y, body.right - wx, body.h), state)
-    _page_dots(screen, state.page % len(names), len(names))
+    _page_tabs(screen, names, state.page % len(names), getattr(state, "page_progress", None))
     if getattr(state, "toast", None):
         _toast(screen, state.toast[0])
 
@@ -617,11 +617,40 @@ def _status(screen, right, y, updated, error, now, compact=False):
     pygame.draw.circle(screen, color, (right - t.get_width() - 10, y + t.get_height() // 2 - 1), 4)
 
 
-def _page_dots(screen, page, count):
-    cx, y = T.W // 2, T.H - 13
-    for i in range(count):
-        x = cx + (i - (count - 1) / 2) * 14
-        pygame.draw.circle(screen, T.MUTED if i == page else T.CARD_BORDER, (round(x), y), 3)
+TAB_LABELS = {"overview": "Departures", "forecast": "Forecast", "alerts": "Alerts"}
+
+
+def _page_tabs(screen, names, current, progress):
+    """Bottom strip: which screen is showing, time until the next one, and how to switch."""
+    y = T.H - 22
+    labels = [_text(TAB_LABELS.get(n, n), "semibold" if i == current else "medium", 12,
+                    T.TEXT if i == current else T.FAINT) for i, n in enumerate(names)]
+    gap = 22
+    total = sum(l.get_width() for l in labels) + gap * (len(labels) - 1)
+    x = (T.W - total) // 2
+    for i, lab in enumerate(labels):
+        screen.blit(lab, (x, y))
+        if i == current:
+            # countdown to the next auto-advance, filling under the active tab
+            bar = pygame.Rect(x, y + lab.get_height() + 1, lab.get_width(), 2)
+            pygame.draw.rect(screen, T.CARD_BORDER, bar, border_radius=1)
+            if progress is not None:
+                fill = bar.copy()
+                fill.width = max(2, round(bar.width * progress))
+                pygame.draw.rect(screen, T.ACCENT, fill, border_radius=1)
+        if i < len(labels) - 1:
+            dot = _text("·", "medium", 12, T.FAINT)
+            screen.blit(dot, (x + lab.get_width() + (gap - dot.get_width()) // 2, y))
+        x += lab.get_width() + gap
+
+    # key hint, bottom right
+    key = _text("SPACE", "semibold", 9, T.MUTED)
+    cap = pygame.Rect(0, 0, key.get_width() + 12, 15)
+    hint = _text("next", "medium", 12, T.FAINT)
+    cap.topleft = (T.W - T.PAD - hint.get_width() - 6 - cap.width, y)
+    screen.blit(_panel(cap.w, cap.h, 4, T.CARD, T.CARD_BORDER), cap)
+    screen.blit(key, key.get_rect(center=cap.center))
+    screen.blit(hint, (cap.right + 6, y))
 
 
 def _badge(label, color, d, diamond=False):
