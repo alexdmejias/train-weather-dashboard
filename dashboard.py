@@ -5,7 +5,7 @@
     python3 dashboard.py --mock        # fake data, no network needed
 
 On a Raspberry Pi it draws straight to the display (no desktop needed). On a
-laptop it opens an 800×480 window. layout.py, theme.py and icons.py are
+laptop it opens an 800×480 window. layout.py, theme.py, scenery.py and icons.py are
 reloaded automatically when they change, so you can tweak the design live.
 
 Space = next screen (screens also advance on their own every 30 s) ·
@@ -46,11 +46,12 @@ from hardware.buttonshim import ButtonShim  # noqa: E402
 from hardware.display import Presenter, set_backlight  # noqa: E402
 import icons  # noqa: E402
 import layout  # noqa: E402
+import scenery  # noqa: E402
 import theme  # noqa: E402
 from sources import alerts as alerts_src, mock, weather as weather_src  # noqa: E402
 from sources.trains import mta_subway  # noqa: E402
 
-HOT_MODULES = [theme, icons, layout]   # reload order matters: theme first
+HOT_MODULES = [theme, icons, scenery, layout]   # reload order matters: theme first
 BUTTON_EVENT = pygame.USEREVENT + 1
 
 
@@ -77,6 +78,8 @@ class State:
     toast: tuple | None = None                    # (message, hide at monotonic time)
     asleep: bool = False                          # screen blanked
     page_progress: float | None = None            # 0–1 until the next auto-advance (None = off)
+    style: str = "classic"                        # look: classic, hearth, almanac, window
+    season: str = "auto"                          # palette for the cozy looks (auto = by date)
 
     # convenience views used by the layout
     @property
@@ -257,6 +260,8 @@ def main():
         walk_minutes=sub["walk_minutes"],
         directions=sub["directions"],
         direction_labels=sub["direction_labels"],
+        style=disp["style"],
+        season=disp["season"],
     )
     if not state.location:
         zip_code = str(cfg["weather"]["zip"])

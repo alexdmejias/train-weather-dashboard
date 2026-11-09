@@ -42,6 +42,28 @@ card. Tap the banner for an **Alerts** page with the full details; that page
 only exists while there are alerts. Planned work shows up to 12 hours before it
 starts (`[alerts] upcoming_hours`).
 
+## Looks & seasons
+
+Besides the original cool, dark design (`classic`, the default) there are
+three warm, cozy looks meant to sit comfortably in a living room. Each has a
+palette per season, picked from the date (`season = "auto"`) or pinned:
+
+```toml
+[display]
+style = "hearth"     # "classic", "hearth", "almanac" or "window"
+season = "auto"      # or "autumn", "winter", "spring", "summer"
+```
+
+| | Autumn | Winter | Spring | Summer |
+|---|---|---|---|---|
+| **Hearth** — warm dark cards, lamplight, serif numbers | ![](docs/looks/hearth-autumn.png) | ![](docs/looks/hearth-winter.png) | ![](docs/looks/hearth-spring.png) | ![](docs/looks/hearth-summer.png) |
+| **Almanac** — light paper and ink | ![](docs/looks/almanac-autumn.png) | ![](docs/looks/almanac-winter.png) | ![](docs/looks/almanac-spring.png) | ![](docs/looks/almanac-summer.png) |
+| **Window** — frosted cards over an evening landscape | ![](docs/looks/window-autumn.png) | ![](docs/looks/window-winter.png) | ![](docs/looks/window-spring.png) | ![](docs/looks/window-summer.png) |
+
+Render them all (every page) with `python3 tools/render.py --gallery --out /tmp/looks`.
+Palettes live in [`theme.py`](theme.py), backdrops in [`scenery.py`](scenery.py);
+both hot-reload.
+
 ## Configuration
 
 **It works out of the box.** The defaults (in [`config.py`](config.py)) are:
@@ -119,7 +141,7 @@ python3 dashboard.py --fullscreen              # fill the screen instead of an 8
 - The first run with a zip other than 11106 needs the network once to look up
   its coordinates (cached in `~/.cache/train-weather-dashboard/`).
 
-`layout.py`, `theme.py` and `icons.py` **hot-reload on save** — keep the
+`layout.py`, `theme.py`, `scenery.py` and `icons.py` **hot-reload on save** — keep the
 window open and tweak the design live. A layout bug shows an error screen
 instead of crashing; fix it and save again.
 

@@ -14,6 +14,7 @@ import pygame
 import re
 
 import icons
+import scenery
 import theme as T
 from sources.alerts import ordered as order_alerts
 from sources.trains import mta_subway
@@ -28,7 +29,11 @@ def pages(state) -> list[str]:
 
 
 def draw(screen: pygame.Surface, state) -> None:
-    screen.blit(_background(), (0, 0))
+    style = getattr(state, "style", "classic")
+    if T.use(style, T.season_for(state.now, getattr(state, "season", "auto"))):
+        _cache.clear()          # colours are baked into cached surfaces
+        icons._cache.clear()
+    screen.blit(scenery.background(), (0, 0))
     _header(screen, state)
     top = 92
     body = pygame.Rect(T.PAD, top, T.W - 2 * T.PAD, T.H - top - T.PAD - 6)
@@ -56,7 +61,7 @@ def _toast(screen, msg):
     shadow = _panel(w + 12, h + 12, h // 2 + 6, (0, 0, 0))
     shadow.set_alpha(110)
     screen.blit(shadow, (r.x - 6, r.y - 2))
-    screen.blit(_panel(w, h, h // 2, (44, 52, 70), (70, 80, 102)), r)
+    screen.blit(_panel(w, h, h // 2, T.TOAST, T.TOAST_EDGE), r)
     screen.blit(t, t.get_rect(center=r.center))
 
 
@@ -84,7 +89,7 @@ def _header(screen, state):
 
     x += 22
     pygame.draw.line(screen, T.DIVIDER, (x - 11, y + 16), (x - 11, y + 56), 1)
-    day = _text(now.strftime("%A"), "semibold", 19, T.TEXT)
+    day = _text(now.strftime("%A"), "heading", 19, T.TEXT)
     date = _text(f"{now.strftime('%B')} {now.day}", "regular", 16, T.MUTED)
     screen.blit(day, (x, y + 13))
     screen.blit(date, (x, y + 37))
@@ -139,6 +144,9 @@ def _alert_banner(screen, r, alerts, state):
 
 def _level_colors(level):
     """(fill, border, accent) for an alert level."""
+    if T.STYLE != "classic":
+        accent = {"severe": T.BAD, "warning": T.WARN}.get(level, T.ACCENT)
+        return T.mix(T.CARD, accent, 0.16), T.mix(T.CARD, accent, 0.42), accent
     if level == "severe":
         return (54, 22, 30), (110, 42, 52), T.BAD
     if level == "warning":
@@ -201,7 +209,7 @@ def _insight(state):
 # ── departures card ───────────────────────────────────────────────────────
 
 def _departures(screen, r, state):
-    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    _card(screen, r)
     ix = r.x + 20
     screen.blit(_tracked_fit(state.station.upper(), "semibold", 12, T.MUTED, 1.6, r.w - 140), (ix, r.y + 18))
     _status(screen, r.right - 20, r.y + 20, state.trains_updated, state.trains_error, state.now)
@@ -347,7 +355,7 @@ def _upcoming(deps, now, walk_minutes=0):
 # ── weather card ──────────────────────────────────────────────────────────
 
 def _weather(screen, r, state):
-    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    _card(screen, r)
     ix = r.x + 20
     screen.blit(_tracked((state.location or "WEATHER").upper(), "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
     w = state.weather
@@ -378,7 +386,7 @@ def _weather(screen, r, state):
     screen.blit(deg, (tx + temp.get_width() - 2, r.y + 44))
 
     y = r.y + 134
-    screen.blit(_fit(icons.condition(w.code), "semibold", 18, T.TEXT, r.w - 40), (ix, y))
+    screen.blit(_fit(icons.condition(w.code), "heading", 18, T.TEXT, r.w - 40), (ix, y))
     y += 26
     hl = f"H {w.high:.0f}°   L {w.low:.0f}°   Feels {w.feels_like:.0f}°"
     screen.blit(_fit(hl, "regular", 15, T.MUTED, r.w - 40), (ix, y))
@@ -408,11 +416,11 @@ def _weather(screen, r, state):
 # ── forecast page ─────────────────────────────────────────────────────────
 
 def _forecast_page(screen, r, state):
-    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    _card(screen, r)
     ix = r.x + 22
     screen.blit(_tracked("7-DAY FORECAST", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
     if state.location:
-        screen.blit(_text(state.location, "semibold", 22, T.TEXT), (ix, r.y + 36))
+        screen.blit(_text(state.location, "heading", 22, T.TEXT), (ix, r.y + 36))
     w = state.weather
     if not w or not w.daily:
         t = _text("Loading forecast…", "medium", 16, T.MUTED)
@@ -433,7 +441,7 @@ def _forecast_page(screen, r, state):
         if i:
             pygame.draw.line(screen, T.DIVIDER, (ix, y), (r.right - 22, y), 1)
         name = "Today" if i == 0 else d.day.strftime("%A")
-        screen.blit(_text(name, "semibold", 18, T.TEXT), (ix, cy - 12))
+        screen.blit(_text(name, "heading", 18, T.TEXT), (ix, cy - 12))
         ico = icons.icon(d.code, True, 32)
         screen.blit(ico, (r.x + 170, cy - 16))
         screen.blit(_fit(icons.condition(d.code), "regular", 15, T.MUTED, 118), (r.x + 212, cy - 9))
@@ -462,7 +470,7 @@ def _forecast_page(screen, r, state):
 # ── alerts page ───────────────────────────────────────────────────────────
 
 def _alerts_page(screen, r, state):
-    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    _card(screen, r)
     ix = r.x + 22
     screen.blit(_tracked("ALERTS", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
     alerts = _alerts(state)
@@ -693,6 +701,41 @@ def _panel(w, h, radius, fill, border=None):
     return _cache[key]
 
 
+def _card(screen, r):
+    """A content card: solid, frosted (window style) or paper with a soft shadow (almanac)."""
+    key = ("card", r.w, r.h, T.KEY)
+    if key not in _cache:
+        radius = T.RADIUS
+        if T.CARD_SHADOW:
+            pad = 10
+            s = pygame.Surface((r.w + 2 * pad, r.h + 2 * pad), pygame.SRCALPHA)
+            for i in range(pad, 0, -2):
+                sh = _panel(r.w + 2 * i, r.h + 2 * i, radius + i, (60, 40, 20))
+                sh = sh.copy()
+                sh.set_alpha(round(T.CARD_SHADOW * (1 - i / pad) ** 1.5) + 2)
+                s.blit(sh, (pad - i, pad - i + 3))
+            s.blit(_panel(r.w, r.h, radius, T.CARD, T.CARD_BORDER), (pad, pad))
+            _cache[key] = (s, -pad)
+        elif T.CARD_ALPHA < 255:  # frosted glass: a blurred, tinted copy of the scenery
+            bg = scenery.background().subsurface(r)
+            small = pygame.transform.smoothscale(bg, (max(1, r.w // 24), max(1, r.h // 24)))
+            glass = pygame.transform.smoothscale(small, r.size)
+            tint = pygame.Surface(r.size)
+            tint.fill(T.CARD)
+            tint.set_alpha(T.CARD_ALPHA)
+            glass.blit(tint, (0, 0))
+            s = _panel(r.w, r.h, radius, (255, 255, 255), T.CARD_BORDER).copy()
+            s.blit(glass, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+            # BLEND_RGB_MULT against white keeps the glass and darkens only the border ring
+            ring = _panel(r.w, r.h, radius, (0, 0, 0, 0), T.CARD_BORDER)
+            s.blit(ring, (0, 0))
+            _cache[key] = (s, 0)
+        else:
+            _cache[key] = (_panel(r.w, r.h, radius, T.CARD, T.CARD_BORDER), 0)
+    s, off = _cache[key]
+    screen.blit(s, (r.x + off, r.y + off))
+
+
 def _gradient_bar(w, h, c0, c1):
     key = ("grad", w, h, c0, c1)
     if key not in _cache:
@@ -721,15 +764,6 @@ def _glow(d, color):
             pygame.draw.circle(s, (*color, a), (c, c), round(r))
         _cache[key] = s
     return _cache[key]
-
-
-def _background():
-    if "bg" not in _cache:
-        s = pygame.Surface((T.W, T.H))
-        for y in range(T.H):
-            pygame.draw.line(s, T.mix(T.BG_TOP, T.BG_BOTTOM, y / T.H), (0, y), (T.W, y))
-        _cache["bg"] = s
-    return _cache["bg"]
 
 
 # ── text helpers ──────────────────────────────────────────────────────────

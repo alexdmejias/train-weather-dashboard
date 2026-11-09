@@ -34,6 +34,13 @@ DEFAULTS: dict = {
         # Screens advance on their own every this many seconds (0 = never).
         # Space bar / any button press also moves on and restarts the timer.
         "page_seconds": 30,
+        # Look: "classic" (cool and dark), or one of the cozy ones — "hearth"
+        # (warm dark cards), "almanac" (light paper) or "window" (frosted cards
+        # over a seasonal landscape).
+        "style": "classic",
+        # Palette for the cozy looks: "auto" follows the calendar, or pin one of
+        # "autumn", "winter", "spring", "summer".
+        "season": "auto",
     },
     "weather": {
         "zip": "11106",               # US zip code …

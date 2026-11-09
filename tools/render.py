@@ -4,6 +4,8 @@
     python3 tools/render.py                         # all scenarios → docs/screenshots/
     python3 tools/render.py --scenario rain --page 1 --out /tmp/x.png
     python3 tools/render.py --scale 2               # 1600×960 for crisp previews
+    python3 tools/render.py --scenario normal --style hearth --season winter
+    python3 tools/render.py --gallery --out /tmp/looks   # every style × season
 """
 
 from __future__ import annotations
@@ -42,8 +44,11 @@ SHOTS = [
     ("alerts", 2, (8, 17), "alerts.png"),
 ]
 
+# gallery shots per look: (scenario, page, time, file-name suffix)
+GALLERY = [("normal", 0, (18, 42), ""), ("normal", 1, (18, 42), "forecast"), ("alerts", 0, (18, 17), "alerts")]
 
-def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None):
+
+def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None, style="classic", season="auto"):
     now = datetime.now().astimezone().replace(hour=hm[0], minute=hm[1], second=0, microsecond=0)
     state = State(
         now=now, station="Steinway St & Broadway", location="Astoria", multi_station=True,
@@ -51,6 +56,7 @@ def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None):
         departures=mock.trains(now, scenario), weather=mock.weather(now, scenario),
         subway_alerts=mock.subway_alerts(now, scenario), weather_alerts=mock.weather_alerts(now, scenario),
         updated={"trains": now - timedelta(seconds=20), "weather": now - timedelta(minutes=4)},
+        style=style, season=season,
     )
     state.page_progress = 0.4  # auto-advance countdown, part way through
     if toast:
@@ -75,13 +81,25 @@ def main():
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--toast", help="show a button-press confirmation, e.g. 'B · Forecast'")
     ap.add_argument("--scale", type=int, default=1)
+    ap.add_argument("--style", default="classic", choices=sorted(theme.STYLES))
+    ap.add_argument("--season", default="auto", choices=["auto", *theme.SEASONS])
+    ap.add_argument("--gallery", action="store_true",
+                    help="every cozy style × season (departures + forecast) into --out")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
 
-    if args.scenario:
+    if args.gallery:
+        outdir = args.out or ROOT / "docs" / "looks"
+        for style in theme.STYLES:
+            for season in (theme.SEASONS if style != "classic" else ("autumn",)):
+                for scenario, page, hm, tag in GALLERY:
+                    name = f"{style}.png" if style == "classic" and not tag else \
+                        f"{style}{'-' + season if style != 'classic' else ''}{'-' + tag if tag else ''}.png"
+                    render(scenario, page, hm, outdir / name, args.scale, style=style, season=season)
+    elif args.scenario:
         hm = tuple(int(x) for x in args.time.split(":"))
         out = args.out or ROOT / "docs" / "screenshots" / f"{args.scenario}-{args.page}.png"
-        render(args.scenario, args.page, hm, out, args.scale, args.offline, args.toast)
+        render(args.scenario, args.page, hm, out, args.scale, args.offline, args.toast, args.style, args.season)
     else:
         outdir = args.out or ROOT / "docs" / "screenshots"
         for scenario, page, hm, name in SHOTS:
