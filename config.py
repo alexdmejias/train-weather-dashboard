@@ -38,7 +38,11 @@ DEFAULTS: dict = {
         # Station names or ids (python3 tools/find_station.py <name>). Names
         # that exist more than once ("Broadway") pick the one nearest the zip.
         "stations": ["Steinway St", "Broadway"],
-        "directions": ["S"],          # "S" = Manhattan-bound here; ["N", "S"] = both ways
+        "directions": ["S", "N"],     # sections, in display order; the first gets more rows
+        "direction_labels": {         # section titles: "To Manhattan" / "To Queens"
+            "S": "Manhattan",         # S = southbound platforms (Manhattan-bound from Astoria)
+            "N": "Queens",            # N = northbound (Astoria-Ditmars, Forest Hills, Jamaica)
+        },
         "routes": [],                 # only these lines, e.g. ["N", "W", "R"]; [] = all
         "walk_minutes": 0,            # hide trains you can't catch: 5, or {"Steinway St" = 6, "Broadway" = 4}
         "title": None,                # departures card title; default: the station names

@@ -159,5 +159,6 @@ def parse(blob: bytes, stations, directions=None, routes=None, now=None) -> list
                 color=info.get("color"),
                 express=route.endswith("X"),
                 station=station_name(stu.stop_id),
+                direction=stu.stop_id[-1],
             ))
     return out

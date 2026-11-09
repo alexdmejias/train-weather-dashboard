@@ -56,6 +56,8 @@ class State:
     max_rows: int = 5
     walk_minutes: int | dict = 0
     multi_station: bool = False
+    directions: list = field(default_factory=lambda: ["S", "N"])
+    direction_labels: dict = field(default_factory=dict)
     page: int = 0
     departures: list | None = None
     weather: object | None = None
@@ -191,6 +193,8 @@ def main():
         clock24=disp["clock"] == "24h",
         max_rows=sub["max_rows"],
         walk_minutes=sub["walk_minutes"],
+        directions=sub["directions"],
+        direction_labels=sub["direction_labels"],
     )
     if not state.location:
         zip_code = str(cfg["weather"]["zip"])

@@ -71,6 +71,7 @@ def test_mta_subway_parse():
     got = sorted((d.line, d.destination, d.express, round((d.depart_at - now).total_seconds() / 60)) for d in deps)
     assert got == [("A", "Inwood-207 St", False, 4), ("F", "Coney Island-Stillwell Av", True, 9)]
     assert all(d.delay_min is None and d.color for d in deps)
+    assert {d.line: d.direction for d in deps} == {"A": "N", "F": "S"}
     # direction + route filters
     assert [d.line for d in mta_subway.parse(_feed(now), ["A41"], directions=["S"], now=now)] == ["F"]
     assert [d.line for d in mta_subway.parse(_feed(now), ["A41"], routes=["A"], now=now)] == ["A"]
@@ -113,3 +114,13 @@ def test_station_names_resolve_by_proximity():
     jay = (40.6924, -73.9874)
     assert mta_subway.resolve_stations(["Broadway"], jay) == ["G30"]          # Williamsburg G
     assert set(mta_subway.resolve_stations(["Jay St-MetroTech"], jay)) == {"A41", "R29"}  # whole complex
+
+
+def test_rows_split_between_directions():
+    import os
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import layout
+    assert layout._allocate([5, 4], 5) == [3, 2]      # Manhattan-bound gets more
+    assert layout._allocate([1, 4], 5) == [1, 4]      # unused rows go to the other side
+    assert layout._allocate([6, 0], 5) == [5, 0]
+    assert layout._allocate([2], 5) == [2]

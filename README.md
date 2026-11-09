@@ -32,7 +32,7 @@ minute ticks or new data arrives.
 |---|---|
 | Weather location | zip **11106** (Astoria) |
 | Stations | **Steinway St** (M R) and **Broadway** (N W) |
-| Direction | Manhattan-bound (`"S"`) |
+| Directions | Grouped: **To Manhattan** first, then **To Queens** |
 | Clock / units | 12-hour, °F |
 
 To change anything, copy [`config.example.toml`](config.example.toml) to
@@ -41,7 +41,7 @@ its default. For example:
 
 ```toml
 [subway]
-directions = ["N", "S"]                                # both directions
+directions = ["S"]                                     # Manhattan-bound only
 walk_minutes = { "Steinway St" = 7, "Broadway" = 4 }   # hide trains you can't catch
 ```
 

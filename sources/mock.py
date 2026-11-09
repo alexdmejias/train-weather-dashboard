@@ -14,32 +14,40 @@ from .models import Departure
 from .trains import mta_subway
 from .weather import parse as parse_weather
 
-# (route, destination, minutes away, station) — Manhattan-bound from
-# Steinway St (M/R) and Broadway (N/W) in Astoria, the default stations
+# (route, destination, minutes away, station, direction) — Steinway St (M/R)
+# and Broadway (N/W) in Astoria, the default stations
 STEINWAY, BROADWAY = "Steinway St", "Broadway"
+TO_CITY = [
+    ("N", "Coney Island-Stillwell Av", 2, BROADWAY, "S"),
+    ("R", "Bay Ridge-95 St", 4, STEINWAY, "S"),
+    ("W", "Whitehall St-South Ferry", 6, BROADWAY, "S"),
+    ("M", "Middle Village-Metropolitan Av", 8, STEINWAY, "S"),
+    ("N", "Coney Island-Stillwell Av", 11, BROADWAY, "S"),
+]
+TO_QUEENS = [
+    ("W", "Astoria-Ditmars Blvd", 3, BROADWAY, "N"),
+    ("M", "Forest Hills-71 Av", 5, STEINWAY, "N"),
+    ("N", "Astoria-Ditmars Blvd", 9, BROADWAY, "N"),
+    ("R", "Forest Hills-71 Av", 12, STEINWAY, "N"),
+]
 TRAINS = {
-    "normal": [
-        ("N", "Coney Island-Stillwell Av", 2, BROADWAY),
-        ("R", "Bay Ridge-95 St", 4, STEINWAY),
-        ("W", "Whitehall St-South Ferry", 6, BROADWAY),
-        ("M", "Middle Village-Metropolitan Av", 8, STEINWAY),
-        ("N", "Coney Island-Stillwell Av", 10, BROADWAY),
-        ("R", "Bay Ridge-95 St", 13, STEINWAY),
-    ],
+    "normal": TO_CITY + TO_QUEENS,
     "evening": [
-        ("W", "Whitehall St-South Ferry", 0, BROADWAY),
-        ("M", "Middle Village-Metropolitan Av", 3, STEINWAY),
-        ("N", "Coney Island-Stillwell Av", 5, BROADWAY),
-        ("R", "Bay Ridge-95 St", 7, STEINWAY),
-        ("W", "Whitehall St-South Ferry", 11, BROADWAY),
+        ("W", "Whitehall St-South Ferry", 0, BROADWAY, "S"),
+        ("R", "Bay Ridge-95 St", 4, STEINWAY, "S"),
+        ("N", "Coney Island-Stillwell Av", 7, BROADWAY, "S"),
+        ("N", "Astoria-Ditmars Blvd", 1, BROADWAY, "N"),
+        ("R", "Forest Hills-71 Av", 3, STEINWAY, "N"),
+        ("W", "Astoria-Ditmars Blvd", 6, BROADWAY, "N"),
+    ],
+    "night": [
+        ("N", "Coney Island-Stillwell Av", 6, BROADWAY, "S"),
+        ("R", "Bay Ridge-95 St", 9, STEINWAY, "S"),
+        ("E", "Jamaica Center-Parsons/Archer", 4, STEINWAY, "N"),
+        ("N", "Astoria-Ditmars Blvd", 15, BROADWAY, "N"),
     ],
 }
 TRAINS["rain"] = TRAINS["normal"]
-TRAINS["night"] = [
-    ("N", "Coney Island-Stillwell Av", 6, BROADWAY),
-    ("R", "Bay Ridge-95 St", 9, STEINWAY),
-    ("N", "Coney Island-Stillwell Av", 18, BROADWAY),
-]
 TRAINS["snow"] = TRAINS["evening"]
 
 # (base temp °F, daytime code, night code, rain hours from now)
@@ -55,12 +63,12 @@ WEATHER = {
 def trains(now: datetime, scenario: str = "normal") -> list[Departure]:
     routes = mta_subway.data()["routes"]
     out = []
-    for route, dest, mins, station in TRAINS.get(scenario, TRAINS["normal"]):
+    for route, dest, mins, station, direction in TRAINS.get(scenario, TRAINS["normal"]):
         out.append(Departure(
             line=route.rstrip("X") if len(route) == 2 else route, destination=dest,
             depart_at=now + timedelta(minutes=mins, seconds=20),
             color=routes.get(route, {}).get("color"), express=route.endswith("X"),
-            station=station,
+            station=station, direction=direction,
         ))
     return out
 

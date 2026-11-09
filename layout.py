@@ -99,45 +99,80 @@ def _insight(state):
 def _departures(screen, r, state):
     screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
     ix = r.x + 20
-    screen.blit(_tracked("DEPARTURES", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
-    screen.blit(_fit(state.station, "semibold", 22, T.TEXT, r.w - 200), (ix, r.y + 36))
+    screen.blit(_tracked_fit(state.station.upper(), "semibold", 12, T.MUTED, 1.6, r.w - 140), (ix, r.y + 18))
     _status(screen, r.right - 20, r.y + 20, state.trains_updated, state.trains_error, state.now)
 
-    deps = _upcoming(state.departures or [], state.now, state.walk_minutes)[: state.max_rows]
-    list_top = r.y + 80
-    if not deps:
-        if state.departures is None:
-            msg = "Can't reach the MTA · retrying" if state.trains_error else "Loading departures…"
-        else:
-            msg = "No upcoming trains"
+    top = r.y + 46
+    if state.departures is None:
+        msg = "Can't reach the MTA · retrying" if state.trains_error else "Loading departures…"
         t = _text(msg, "medium", 17, T.MUTED)
-        screen.blit(t, t.get_rect(center=(r.centerx, list_top + (r.bottom - list_top) // 2 - 10)))
+        screen.blit(t, t.get_rect(center=(r.centerx, top + (r.bottom - top) // 2 - 10)))
         return
 
-    row_h = min(56, (r.bottom - list_top - 10) // max(1, state.max_rows))
-    for i, d in enumerate(deps):
-        y = list_top + i * row_h
-        row = pygame.Rect(r.x + 8, y, r.w - 16, row_h - 4)
-        if i == 0:
-            screen.blit(_panel(row.w, row.h, 12, T.CARD_HI), row)
-        elif i > 0:
-            pygame.draw.line(screen, T.DIVIDER, (r.x + 20, y - 2), (r.right - 20, y - 2), 1)
-        _departure_row(screen, row, d, state)
+    deps = _upcoming(state.departures, state.now, state.walk_minutes)
+    directions = state.directions or ["S", "N"]
+    groups = [(d, [x for x in deps if x.direction == d]) for d in directions]
+    if len(groups) == 1:  # one direction: no section headers, roomier rows
+        groups[0] = (None, deps)
+
+    head_h = 28 if groups[0][0] else 0
+    empty_h = 34
+    room = r.bottom - 8 - top - head_h * len(groups) - empty_h * sum(1 for _, g in groups if not g)
+    row_h = 48 if head_h else 56
+    counts = _allocate([len(g) for _, g in groups], min(state.max_rows, room // row_h))
+
+    y = top
+    for (direction, trains), n in zip(groups, counts):
+        if direction:
+            label = state.direction_labels.get(direction, direction)
+            t = _tracked(f"TO {label.upper()}", "bold", 11, T.TEXT_SOFT, 1.4)
+            screen.blit(t, (ix, y + 8))
+            lx = ix + t.get_width() + 10
+            pygame.draw.line(screen, T.DIVIDER, (lx, y + 8 + t.get_height() // 2), (r.right - 20, y + 8 + t.get_height() // 2), 1)
+            y += head_h
+        if not trains:
+            t = _text("No upcoming trains", "regular", 15, T.FAINT)
+            screen.blit(t, (ix, y + 6))
+            y += empty_h
+            continue
+        for i, d in enumerate(trains[:n]):
+            row = pygame.Rect(r.x + 8, y, r.w - 16, row_h - 4)
+            if i == 0:
+                screen.blit(_panel(row.w, row.h, 12, T.CARD_HI), row)
+            else:
+                pygame.draw.line(screen, T.DIVIDER, (r.x + 20, y - 2), (r.right - 20, y - 2), 1)
+            _departure_row(screen, row, d, state, compact=bool(head_h))
+            y += row_h
 
 
-def _departure_row(screen, row, d, state):
+def _allocate(sizes, total):
+    """Split ``total`` rows between groups: the first group gets ~60 %,
+    and rows a group can't use go to the others."""
+    if not sizes:
+        return []
+    if len(sizes) == 1:
+        return [min(sizes[0], total)]
+    first = min(sizes[0], -(-total * 3 // 5))
+    rest = min(sizes[1], total - first)
+    first = min(sizes[0], total - rest)
+    return [first, rest] + [0] * (len(sizes) - 2)
+
+
+def _departure_row(screen, row, d, state, compact=False):
     mins = _minutes_until(d.depart_at, state.now)
     dim = d.cancelled
+    bd = 30 if compact else 34          # badge diameter
+    dest_size, sub_size = (18, 14) if compact else (19, 15)
 
     # line badge
-    badge = _badge(d.line, T.hex_color(d.color), 34, diamond=d.express)
-    screen.blit(badge, (row.x + 12, row.centery - 17))
+    badge = _badge(d.line, T.hex_color(d.color), bd, diamond=d.express)
+    screen.blit(badge, (row.x + 12, row.centery - bd // 2))
 
     # destination + detail line
-    tx = row.x + 60
+    tx = row.x + 12 + bd + 14
     right_w = 92
-    dest = _fit(d.destination, "semibold", 19, T.FAINT if dim else T.TEXT, row.right - right_w - tx)
-    screen.blit(dest, (tx, row.y + 6))
+    dest = _fit(d.destination, "semibold", dest_size, T.FAINT if dim else T.TEXT, row.right - right_w - tx)
+    screen.blit(dest, (tx, row.y + (3 if compact else 6)))
 
     parts = []
     if state.multi_station and d.station:
@@ -154,24 +189,24 @@ def _departure_row(screen, row, d, state):
         when = _clock(d.depart_at, state.clock24)
         parts.append((f"Arrives {when}", T.MUTED))
 
-    x, y = tx, row.y + 30
+    x, y = tx, row.y + (24 if compact else 30)
     for j, (txt, col) in enumerate(parts):
         if j:
-            dot = _text("·", "regular", 15, T.FAINT)
+            dot = _text("·", "regular", sub_size, T.FAINT)
             screen.blit(dot, (x + 6, y))
             x += 6 + dot.get_width() + 6
-        t = _text(txt, "medium" if col != T.MUTED else "regular", 15, col)
+        t = _text(txt, "medium" if col != T.MUTED else "regular", sub_size, col)
         screen.blit(t, (x, y))
         x += t.get_width()
 
     # minutes, right aligned
     rx = row.right - 14
     if mins <= 0 and not dim:
-        t = _text("Now", "display-semibold", 26, T.ACCENT)
+        t = _text("Now", "display-semibold", 24 if compact else 26, T.ACCENT)
         screen.blit(t, (rx - t.get_width(), row.centery - t.get_height() // 2))
     else:
         unit = _text("min", "medium", 14, T.FAINT if dim else T.MUTED)
-        num = _text(str(mins), "display-semibold", 30, T.FAINT if dim else T.TEXT)
+        num = _text(str(mins), "display-semibold", 28 if compact else 30, T.FAINT if dim else T.TEXT)
         ux = rx - unit.get_width()
         nx = ux - 5 - num.get_width()
         ny = row.centery - num.get_height() // 2
@@ -434,6 +469,14 @@ def _fit(s, face, size, color, max_w):
     while s and f.size(s + "…")[0] > max_w:
         s = s[:-1]
     return _text(s.rstrip() + "…", face, size, color)
+
+
+def _tracked_fit(s, face, size, color, spacing, max_w):
+    out = _tracked(s, face, size, color, spacing)
+    while out.get_width() > max_w and len(s) > 2:
+        s = s[:-2].rstrip() + "…"
+        out = _tracked(s, face, size, color, spacing)
+    return out
 
 
 def _tracked(s, face, size, color, spacing):

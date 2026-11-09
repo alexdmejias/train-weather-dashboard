@@ -17,6 +17,7 @@ class Departure:
     color: str | None = None       # badge colour, "#RRGGBB"
     express: bool = False          # drawn as a diamond badge
     station: str | None = None     # which of your stations it leaves from
+    direction: str | None = None   # "N" or "S" (MTA platform direction)
 
 
 @dataclass

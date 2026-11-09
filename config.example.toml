@@ -18,9 +18,11 @@
 # A name used by several stations ("Broadway") means the one nearest your zip.
 # stations = ["Steinway St", "Broadway"]
 
-# "S" = Manhattan-bound from Astoria, "N" = toward Astoria/Queens, or both:
+# Trains are grouped by direction. List the sections in display order (the
+# first gets more rows), or just one to hide the other direction entirely.
+# "S" = Manhattan-bound from Astoria, "N" = toward Astoria/Queens.
+# directions = ["S", "N"]
 # directions = ["S"]
-# directions = ["N", "S"]
 
 # Only show some lines ([] = every line at your stations):
 # routes = ["N", "W", "R"]
@@ -30,5 +32,10 @@
 # walk_minutes = { "Steinway St" = 7, "Broadway" = 4 }
 
 # title = "Morning commute"      # departures card title (default: the station names)
-# max_rows = 5
+# max_rows = 5                   # total rows across both directions
 # refresh_seconds = 30
+
+# Section titles ("To Manhattan" / "To Queens") — keep this table last:
+# [subway.direction_labels]
+# S = "Manhattan"
+# N = "Queens"
