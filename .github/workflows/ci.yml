@@ -1,0 +1,53 @@
+# Test every push/PR. When the default branch passes, move the `deploy`
+# branch to that commit — the Pi polls `deploy` (deploy/update.sh) and
+# installs whatever is there. See docs/remote-updates.md.
+name: CI
+
+on:
+  push:
+    branches-ignore: [deploy]
+  pull_request:
+  workflow_dispatch:      # "Run workflow" on any branch → test it and put it on the screen
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Raspberry Pi OS Bookworm ships 3.11, Trixie ships 3.13
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q
+      - name: Render every scenario headlessly (catches layout crashes)
+        run: python tools/render.py
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.11'
+        with:
+          name: screenshots
+          path: docs/screenshots/
+
+  promote:
+    needs: test
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: promote
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Point the deploy branch at this commit
+        run: git push --force origin "HEAD:refs/heads/deploy"
+      - run: echo "Deployed \`${GITHUB_SHA::7}\` — the Pi picks it up within ~5 min." >> "$GITHUB_STEP_SUMMARY"

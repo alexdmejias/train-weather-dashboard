@@ -1,0 +1,137 @@
+# Updating the Pi remotely with CI
+
+**Goal:** push to GitHub, CI tests the change, and the dashboard on the wall
+updates itself, with no laptop, `rsync` or `ssh` involved.
+
+## Constraints that shape the choice
+
+| Constraint | Consequence |
+|---|---|
+| **Pi Zero W is ARMv6** (512 MB) | GitHub's self-hosted Actions runner only ships for ARMv7/ARM64, so the Pi **can't run a runner**. Docker images and balena-style OS agents are heavy or unsupported. |
+| **Behind home NAT**, no public IP | CI can't reach the Pi unless it gets a tunnel/VPN. Anything the Pi *pulls* works with no extra setup. |
+| **Repo is public** | The Pi can `git fetch` anonymously, with no deploy key or token on the device. |
+| **Plain Python, no build step** | The "artifact" is just the source tree. `git` is the simplest transport. |
+| **Already a systemd service** with `Restart=always` | Restarting and checking health is easy. |
+| `config.toml` is **gitignored**, caches live in `~/.cache` | `git reset --hard` never loses local settings. |
+| CI can test headlessly | `pytest` plus `tools/render.py` (SDL dummy driver) renders every scenario, which catches import errors and layout crashes before they reach the screen. |
+
+## Options considered
+
+### 1. Pull: Pi polls a CI-gated branch ✅ recommended
+CI runs tests on every push. When the default branch is green, CI moves a
+`deploy` branch to that commit. A systemd timer on the Pi runs `git fetch`
+every 5 min and, if `deploy` moved, checks it out, restarts the service,
+health-checks it, and **rolls back automatically** if it crash-loops.
+
+- **+** No inbound access, no secrets in CI or on the Pi, no extra services.
+- **+** Works across reboots and flaky Wi-Fi: it simply catches up on the next tick.
+- **+** Rollback is `git revert` (or re-run the workflow on an older commit).
+- **−** Up to ~5 min latency. Polling costs one tiny HTTPS request every 5 min.
+
+### 2. Push: CI SSHes in over Tailscale
+Install Tailscale on the Pi. The workflow uses `tailscale/github-action` to
+join the tailnet as an ephemeral node, then runs the same `rsync` + restart
+that `sync.sh` does.
+
+- **+** Instant, and the run shows deploy success or failure in GitHub.
+- **−** Needs secrets in GitHub (Tailscale OAuth client and an SSH private key)
+  that grant shell access to a device on your home network.
+- **−** Tailscale on a Pi Zero W costs noticeable CPU/RAM. If the Pi is offline
+  when CI runs, the deploy just fails, and nothing retries.
+- Worth it if you **already use Tailscale**. It also gives you remote `ssh`
+  and screenshots from anywhere.
+
+### 3. Pull GitHub Release tarballs
+CI builds a tarball and attaches it to a Release. The Pi downloads the latest
+one into `releases/<ver>/` and swaps a `current` symlink.
+
+- **+** Atomic swap, and the Pi doesn't need git.
+- **−** More moving parts (versioning, asset upload, cleanup) for no real gain,
+  since there is nothing to build.
+
+### 4. Self-hosted runner on the Pi ❌
+Not possible: the runner doesn't support ARMv6.
+
+### 5. Fleet tools (balena, Mender, Ansible-pull) ❌ overkill
+balena replaces the OS and Mender needs a server, both for a single device.
+`ansible-pull` is the same idea as option 1 but needs Ansible on a 512 MB Pi.
+
+## What's implemented (option 1)
+
+```
+.github/workflows/ci.yml        test (py3.11 + 3.13) → render screenshots → promote to `deploy`
+deploy/update.sh                fetch `deploy` → reset → (reinstall) → restart → health check / rollback
+deploy/dashboard-update.service oneshot that runs update.sh as the Pi user
+deploy/dashboard-update.timer   every 5 min (+2 min after boot, ±30 s jitter)
+deploy/install.sh --auto-update installs git + the timer
+```
+
+```
+ push ──► CI: pytest + render ──green──► deploy branch ◄──git fetch / 5 min── Pi
+           (PRs: test only)                                 │
+                                                     reset → restart → 35 s check
+                                                            └─ crash-loop? roll back,
+                                                               skip that commit
+```
+
+**Details**
+
+- **What gets deployed:** pushes to the repo's *default branch* (currently
+  `claude/scaffold-dashboard`), once tests pass. *Actions → CI → Run workflow*
+  on any branch tests it and deploys it. Use this to try a branch on the real
+  screen, or to roll back to an older commit.
+- **Health check:** after a restart, the service must still be `active`
+  with the **same PID** 30 s later. `Restart=always` would otherwise mask a
+  crash loop. If the check fails, `update.sh` resets to the previous commit,
+  restarts, and records the bad SHA in `.git/update-bad-rev` so it isn't
+  retried every 5 min. The next new commit on `deploy` is tried normally.
+- **Dependencies:** if `requirements.txt`, `install.sh` or a unit file
+  changed, `update.sh` re-runs `install.sh` (apt and pip) before restarting.
+- **Self-update safety:** `update.sh` wraps everything in `main()`, so bash
+  has parsed the whole file before `git reset` overwrites it.
+- **Permissions:** the timer runs as the Pi user. Restarting uses
+  `sudo systemctl`, which Raspberry Pi OS allows without a password for the
+  Imager-created user (`sync.sh` already relies on this).
+- The workflow only needs `contents: write` (to move `deploy`). No secrets.
+
+### Switching an existing Pi over
+
+The README's setup copies files with `rsync --exclude .git`, so the Pi has no
+repo. Make it a clone once (your `config.toml` is kept):
+
+```bash
+ssh pi@pizero.local
+```
+
+```bash
+cd ~ && git clone -b deploy https://github.com/alexdmejias/train-weather-dashboard.git twd-new \
+  && cp train-weather-dashboard/config.toml twd-new/ 2>/dev/null; \
+  mv train-weather-dashboard train-weather-dashboard.old && mv twd-new train-weather-dashboard
+```
+
+```bash
+cd ~/train-weather-dashboard && bash deploy/install.sh --auto-update
+```
+
+The `deploy` branch exists after the first green CI run on the default branch.
+
+**Useful commands on the Pi**
+
+```bash
+journalctl -u dashboard-update -n 50          # what the updater did
+sudo systemctl start dashboard-update         # check now instead of waiting
+systemctl list-timers dashboard-update.timer  # next run
+sudo systemctl disable --now dashboard-update.timer   # pause auto-updates
+```
+
+### Caveats / follow-ups
+
+- `sync.sh` and auto-update both write to the same folder. While iterating
+  live with `sync.sh`, pause the timer, or the next tick will `reset --hard`
+  your uncommitted edits back to `deploy`.
+- The health check only catches crashes. It doesn't catch "runs but draws the
+  wrong thing". The CI screenshot artifact is there for a visual check before
+  merging.
+- Optional upgrade: the updater could report its status back (for example,
+  a heartbeat to healthchecks.io or ntfy.sh) so you'd know if the Pi stopped
+  updating.
