@@ -77,11 +77,44 @@ is built from the MTA's static schedule. Refresh it occasionally with
 
 ## Develop on your laptop
 
+Use **Python 3.11–3.13** (see [Troubleshooting](#troubleshooting) for why not
+3.14 with plain `pygame`):
+
 ```bash
+python3.13 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python3 dashboard.py --mock                    # 800×480 window, fake data
 python3 dashboard.py --mock --scenario evening # also: rain, night, snow, alerts
 ```
+
+### Run with real data
+
+Leave off `--mock` and it uses the live feeds — the same ones the Pi uses:
+
+```bash
+python3 dashboard.py                           # live data, defaults (11106, Steinway St + Broadway)
+python3 dashboard.py --config my-stop.toml     # live data, a different config file
+python3 dashboard.py --fullscreen              # fill the screen instead of an 800×480 window
+```
+
+- **No API keys or sign-up.** MTA GTFS-realtime, Open-Meteo and the National
+  Weather Service are all free and open. You just need an internet connection.
+- **Pick your stops** by creating `config.toml` (see [Configuration](#configuration));
+  it's read automatically from the project folder. Use
+  `python3 tools/find_station.py <name>` to find station names/ids.
+- **How fresh it is:** trains every 30 s (`[subway] refresh_seconds`), weather
+  every 15 min (`[weather] refresh_minutes`), subway alerts every 2 min,
+  weather alerts every 5 min. Press `R` to fetch everything now.
+- **Is it live?** Each card shows a status dot: green **Live**, grey
+  **Connecting** (first fetch in progress), amber **Offline · 3m ago** (last
+  fetch failed, still showing the last good data) or red **Offline** (never
+  got data). Failed fetches retry within a minute.
+- **Errors are printed to the terminal**, one line per failed fetch, e.g.
+  `[trains] ConnectionError: …` or `[location] ValueError: Couldn't find zip code …`.
+- Weather alerts come from the US National Weather Service, so they only
+  work for US locations; turn them off with `[alerts] weather = false`.
+- The first run with a zip other than 11106 needs the network once to look up
+  its coordinates (cached in `~/.cache/train-weather-dashboard/`).
 
 `layout.py`, `theme.py` and `icons.py` **hot-reload on save** — keep the
 window open and tweak the design live. A layout bug shows an error screen
@@ -131,6 +164,31 @@ ssh pi@pizero.local 'pkill -USR1 -f "python3 .*dashboard.py"; sleep 1' && scp pi
 ```
 
 Logs: `ssh pi@pizero.local journalctl -u dashboard -f`
+
+## Troubleshooting
+
+**`NotImplementedError: font module not available (ImportError: cannot import name 'Font' from partially initialized module 'pygame.font' …)`**
+
+Your `pygame` was compiled from source without its font support. This happens
+on **Python 3.14**: `pygame` 2.6.1 has no prebuilt wheel for it, so `pip`
+builds it locally, and if `SDL2_ttf` isn't installed it silently skips the
+font module. pygame's fallback for that case has a circular-import bug, so
+anything that draws text fails. Fix it either way:
+
+```bash
+# Option A (recommended — same pygame as the Pi): use Python 3.13 or older
+rm -rf .venv && python3.13 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Option B: stay on 3.14 and use pygame-ce, a drop-in fork with 3.14 wheels
+pip uninstall -y pygame && pip install pygame-ce
+```
+
+Check it worked: `python3 -c "import pygame.font; pygame.font.init(); print('ok')"`.
+
+**Trains show "Can't reach the MTA · retrying"** — check your connection and
+the terminal output; the MTA feeds occasionally time out and recover on the
+next retry.
 
 ## Project layout
 
