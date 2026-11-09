@@ -1,0 +1,43 @@
+# Copy to config.toml and edit.  (config.toml is git-ignored.)
+
+[display]
+clock = "12h"                 # "12h" or "24h"
+units = "fahrenheit"          # "fahrenheit" or "celsius"
+location_name = "Brooklyn"    # shown on the weather card
+
+[weather]
+latitude = 40.7128
+longitude = -74.0060
+refresh_minutes = 15
+
+[trains]
+# "mock"           — fake data, great for designing the layout
+# "gtfs_rt"        — any agency with a GTFS-realtime TripUpdates feed
+# "transport_rest" — transport.rest / HAFAS APIs (Germany & much of Europe)
+provider = "mock"
+mock_scenario = "normal"      # normal | delays | rain | night | snow
+station_name = "Harbor Street"
+refresh_seconds = 45
+max_rows = 5
+
+# Badge colour per line label (optional)
+[trains.line_colors]
+A = "#4C8DFF"
+C = "#35C48A"
+E = "#F2A33A"
+
+# ── provider settings (only the one you use matters) ──────────────────────
+
+[trains.gtfs_rt]
+feed_urls = ["https://example-agency.org/gtfs-rt/tripupdates"]
+stop_ids = ["123N", "123S"]
+# headers = { "x-api-key" = "your-key" }   # only if your agency requires one
+
+[trains.gtfs_rt.destinations]
+"123N" = "Uptown"
+"123S" = "Downtown"
+
+[trains.transport_rest]
+base_url = "https://v6.db.transport.rest"
+stop_id = "8011160"
+# products = ["suburban", "regional"]

@@ -1,0 +1,4 @@
+pygame>=2.1
+requests>=2.28
+# only for provider = "gtfs_rt":
+# gtfs-realtime-bindings>=1.0

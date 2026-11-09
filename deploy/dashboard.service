@@ -1,0 +1,17 @@
+[Unit]
+Description=Train & weather dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# install.sh fills in USER and DIR
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=/usr/bin/python3 __DIR__/dashboard.py
+Environment=PYTHONUNBUFFERED=1
+SupplementaryGroups=video render input
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

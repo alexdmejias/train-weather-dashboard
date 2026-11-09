@@ -1,0 +1,20 @@
+# ── Elecrow 5" 800×480 HDMI display ────────────────────────────────────────
+# Append to /boot/firmware/config.txt (older OS versions: /boot/config.txt).
+# Values from Elecrow's manual; double-check against the one for your unit.
+
+hdmi_force_hotplug=1
+hdmi_group=2
+hdmi_mode=87
+hdmi_cvt=800 480 60 6 0 0 0
+hdmi_drive=1
+
+# Resistive touch (XPT2046 on the GPIO header). Skip if your touch uses USB.
+dtparam=spi=on
+dtoverlay=ads7846,cs=1,penirq=25,penirq_pull=2,speed=50000,swapxy=0,pmax=255,xohms=150,xmin=200,xmax=3900,ymin=200,ymax=3900
+
+# ── /boot/firmware/cmdline.txt ─────────────────────────────────────────────
+# On current Raspberry Pi OS (KMS driver) the hdmi_* lines above may be
+# ignored. If the picture is the wrong size, add this to the END of the single
+# line in cmdline.txt (space separated, no new line):
+#
+#   video=HDMI-A-1:800x480@60 consoleblank=0 vt.global_cursor_default=0
