@@ -16,6 +16,7 @@ class Departure:
     cancelled: bool = False
     color: str | None = None       # badge colour, "#RRGGBB"
     express: bool = False          # drawn as a diamond badge
+    station: str | None = None     # which of your stations it leaves from
 
 
 @dataclass

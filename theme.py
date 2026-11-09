@@ -20,6 +20,7 @@ CARD_BORDER = (35, 42, 58)
 DIVIDER = (33, 40, 55)
 
 TEXT = (236, 240, 246)
+TEXT_SOFT = (196, 203, 216)     # secondary emphasis (station name on a row)
 MUTED = (139, 149, 168)
 FAINT = (86, 95, 114)
 

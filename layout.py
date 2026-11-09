@@ -140,12 +140,14 @@ def _departure_row(screen, row, d, state):
     screen.blit(dest, (tx, row.y + 6))
 
     parts = []
+    if state.multi_station and d.station:
+        parts.append((d.station, T.TEXT_SOFT))
     if d.cancelled:
         parts.append(("Cancelled", T.BAD))
     elif d.delay_min is not None:  # only if the feed reports lateness
         parts.append((f"{d.delay_min} min late", T.WARN) if d.delay_min >= 2 else ("On time", T.GOOD))
     if d.express:
-        parts.append(("Express", T.TEXT))
+        parts.append(("Express", T.TEXT_SOFT))
     if d.platform:
         parts.append((f"Track {d.platform}", T.MUTED))
     if d.depart_at:
@@ -181,8 +183,16 @@ def _departure_row(screen, row, d, state):
 
 
 def _upcoming(deps, now, walk_minutes=0):
-    """Trains you can still make, soonest first."""
-    keep = [d for d in deps if d.depart_at and _minutes_until(d.depart_at, now) >= walk_minutes]
+    """Trains you can still make, soonest first.
+
+    ``walk_minutes`` is a number, or a {station name: minutes} table.
+    """
+    def walk(d):
+        if isinstance(walk_minutes, dict):
+            return walk_minutes.get(d.station, 0)
+        return walk_minutes
+
+    keep = [d for d in deps if d.depart_at and _minutes_until(d.depart_at, now) >= walk(d)]
     return sorted(keep, key=lambda d: d.depart_at)
 
 

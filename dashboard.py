@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Train + weather dashboard for an 800×480 screen.
 
-    python3 dashboard.py               # uses ./config.toml
+    python3 dashboard.py               # defaults from config.py, overridden by ./config.toml if present
     python3 dashboard.py --mock        # fake data, no network needed
 
 On a Raspberry Pi it draws straight to the display (no desktop needed). On a
@@ -22,7 +22,6 @@ import signal
 import sys
 import threading
 import time
-import tomllib
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -37,11 +36,12 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 import pygame  # noqa: E402
 
+import config  # noqa: E402
 import icons  # noqa: E402
 import layout  # noqa: E402
 import theme  # noqa: E402
 from sources import mock, weather as weather_src  # noqa: E402
-from sources.trains import get_provider  # noqa: E402
+from sources.trains import mta_subway  # noqa: E402
 
 HOT_MODULES = [theme, icons, layout]   # reload order matters: theme first
 PAGE_TIMEOUT = 30                      # seconds before returning to overview
@@ -54,7 +54,8 @@ class State:
     location: str = ""
     clock24: bool = False
     max_rows: int = 5
-    walk_minutes: int = 0
+    walk_minutes: int | dict = 0
+    multi_station: bool = False
     page: int = 0
     departures: list | None = None
     weather: object | None = None
@@ -66,27 +67,16 @@ class State:
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
-def load_config(path: Path) -> dict:
-    if not path.exists():
-        example = ROOT / "config.example.toml"
-        print(f"{path.name} not found — using {example.name}. Copy it to config.toml and edit.")
-        path = example
-    with open(path, "rb") as f:
-        return tomllib.load(f)
-
-
 # ── background data fetching ──────────────────────────────────────────────
 
 class Fetcher(threading.Thread):
     """Polls the APIs on their own schedules without blocking the screen."""
 
-    def __init__(self, cfg: dict, state: State, use_mock: bool):
+    def __init__(self, cfg: dict, state: State, scenario: str | None):
         super().__init__(daemon=True)
-        self.cfg, self.state, self.use_mock = cfg, state, use_mock
-        tcfg = cfg.get("trains", {})
-        self.provider = get_provider("mock" if use_mock else tcfg.get("provider", "mock"))
-        self.train_every = tcfg.get("refresh_seconds", 45)
-        self.weather_every = cfg.get("weather", {}).get("refresh_minutes", 15) * 60
+        self.cfg, self.state, self.scenario = cfg, state, scenario  # scenario set → mock data
+        self.train_every = cfg["subway"]["refresh_seconds"]
+        self.weather_every = cfg["weather"]["refresh_minutes"] * 60
         self.wake = threading.Event()
         self.next_train = self.next_weather = 0.0
 
@@ -107,16 +97,29 @@ class Fetcher(threading.Thread):
             self.wake.wait(max(1.0, min(self.next_train, self.next_weather) - time.monotonic()))
             self.wake.clear()
 
+    def _near(self):
+        """Configured location, or None if it can't be resolved yet (offline)."""
+        try:
+            lat, lon, name = config.place(self.cfg)
+        except Exception as e:
+            print(f"[location] {type(e).__name__}: {e}", flush=True)
+            return None
+        if name and not self.state.location:
+            self.state.location = name
+        return lat, lon
+
     def _get_trains(self):
-        tcfg = dict(self.cfg.get("trains", {}))
-        return self.provider.fetch(tcfg)
+        if self.scenario:
+            return mock.trains(datetime.now().astimezone(), self.scenario)
+        return mta_subway.fetch(self.cfg["subway"], self._near())
 
     def _get_weather(self):
-        wcfg = dict(self.cfg.get("weather", {}))
-        wcfg["units"] = self.cfg.get("display", {}).get("units", "fahrenheit")
-        if self.use_mock or wcfg.get("mock"):
-            return mock.weather(datetime.now().astimezone(), self.cfg.get("trains", {}).get("mock_scenario", "normal"))
-        return weather_src.fetch(wcfg)
+        if self.scenario:
+            return mock.weather(datetime.now().astimezone(), self.scenario)
+        near = self._near()
+        if near is None:
+            raise RuntimeError("location not resolved yet")
+        return weather_src.fetch(*near, units=self.cfg["display"]["units"])
 
     def _update(self, what, fn) -> bool:
         try:
@@ -168,25 +171,30 @@ class Reloader:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", type=Path, default=ROOT / "config.toml")
+    ap.add_argument("--config", type=Path, default=ROOT / "config.toml",
+                    help="optional overrides for the defaults in config.py")
     ap.add_argument("--mock", action="store_true", help="use fake train + weather data")
-    ap.add_argument("--scenario", help="mock scenario: normal, evening, rain, night, snow")
+    ap.add_argument("--scenario", help="mock scenario (implies --mock): normal, evening, rain, night, snow")
     ap.add_argument("--fullscreen", action="store_true", help="force fullscreen (default on the Pi)")
     args = ap.parse_args()
 
-    cfg = load_config(args.config)
-    if args.scenario:
-        cfg.setdefault("trains", {})["mock_scenario"] = args.scenario
-    disp, tcfg = cfg.get("display", {}), cfg.get("trains", {})
+    cfg = config.load(args.config)
+    scenario = args.scenario or ("normal" if args.mock else None)
+    disp, sub = cfg["display"], cfg["subway"]
+    names = list(dict.fromkeys(_station_label(s) for s in sub["stations"]))
 
     state = State(
         now=datetime.now().astimezone(),
-        station=tcfg.get("station_name", "Station"),
-        location=disp.get("location_name", ""),
-        clock24=disp.get("clock", "12h") == "24h",
-        max_rows=tcfg.get("max_rows", 5),
-        walk_minutes=tcfg.get("walk_minutes", 0),
+        station=sub["title"] or " & ".join(names),
+        location=disp["location_name"] or "",
+        multi_station=len(names) > 1,
+        clock24=disp["clock"] == "24h",
+        max_rows=sub["max_rows"],
+        walk_minutes=sub["walk_minutes"],
     )
+    if not state.location:
+        zip_code = str(cfg["weather"]["zip"])
+        state.location = config.KNOWN_ZIPS.get(zip_code, (0, 0, ""))[2]  # unknown zips: set once geocoded
 
     pygame.display.init()
     pygame.font.init()
@@ -195,7 +203,7 @@ def main():
     pygame.display.set_caption("Dashboard")
     pygame.mouse.set_visible(not ON_PI)
 
-    fetcher = Fetcher(cfg, state, use_mock=args.mock or tcfg.get("provider") == "mock")
+    fetcher = Fetcher(cfg, state, scenario)
     fetcher.start()
     reloader = Reloader(HOT_MODULES)
 
@@ -257,6 +265,11 @@ def main():
         clock.tick(10)
 
     pygame.quit()
+
+
+def _station_label(entry: str) -> str:
+    """Display name for a configured station (ids → names)."""
+    return mta_subway.station_name(entry) if entry in mta_subway.data()["stations"] else entry
 
 
 def _draw_error(screen, e):

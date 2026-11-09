@@ -13,8 +13,6 @@ sudo pip3 install --break-system-packages --no-deps gtfs-realtime-bindings
 echo "→ Adding $USER_NAME to the video/render/input groups (display + touch access)"
 sudo usermod -aG video,render,input "$USER_NAME"
 
-[ -f "$DIR/config.toml" ] || cp "$DIR/config.example.toml" "$DIR/config.toml"
-
 echo "→ Installing systemd service"
 sed -e "s|__USER__|$USER_NAME|g" -e "s|__DIR__|$DIR|g" "$DIR/deploy/dashboard.service" \
   | sudo tee /etc/systemd/system/dashboard.service >/dev/null
@@ -23,8 +21,8 @@ sudo systemctl enable --now dashboard.service
 
 echo
 echo "Done. Next:"
-echo "  • find your station:  python3 $DIR/tools/find_station.py \"bedford\""
-echo "  • edit $DIR/config.toml (station ids, weather location)"
+echo "  • it runs with the defaults (11106, Steinway St + Broadway)"
+echo "  • to customise: cp config.example.toml config.toml, edit, sudo systemctl restart dashboard"
 echo "  • add the screen settings from deploy/config.txt.snippet to /boot/firmware/config.txt and reboot"
 echo "  • logs:    journalctl -u dashboard -f"
 echo "  • restart: sudo systemctl restart dashboard"

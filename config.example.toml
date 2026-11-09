@@ -1,26 +1,34 @@
-# Copy to config.toml and edit.  (config.toml is git-ignored.)
+# Everything works out of the box — defaults live in config.py.
+# To change something, copy this file to config.toml and uncomment ONLY the
+# lines you want to override. (config.toml is git-ignored.)
 
 [display]
-clock = "12h"                 # "12h" or "24h"
-units = "fahrenheit"          # "fahrenheit" or "celsius"
-location_name = "Brooklyn"    # shown on the weather card
+# clock = "12h"                  # "12h" or "24h"
+# units = "fahrenheit"           # "fahrenheit" or "celsius"
+# location_name = "Astoria"      # weather card label (default: looked up from the zip)
 
 [weather]
-latitude = 40.6924
-longitude = -73.9874
-refresh_minutes = 15
+# zip = "11106"                  # any US zip code
+# latitude = 40.7621             # or exact coordinates (these win over zip)
+# longitude = -73.9319
+# refresh_minutes = 15
 
-[trains]
-provider = "mta_subway"       # or "mock" for fake data while designing
-mock_scenario = "normal"      # mock only: normal | evening | rain | night | snow
-station_name = "Jay St-MetroTech"
-refresh_seconds = 30          # the MTA feeds update about every 30 s
-max_rows = 5
-walk_minutes = 0              # hide trains leaving sooner than you can reach the platform
+[subway]
+# Station names or ids. Look them up with:  python3 tools/find_station.py steinway
+# A name used by several stations ("Broadway") means the one nearest your zip.
+# stations = ["Steinway St", "Broadway"]
 
-[trains.mta_subway]
-# Station ids — find yours with:  python3 tools/find_station.py "jay st"
-# A station complex can have one id per line group; list them all.
-stations = ["A41", "R29"]
-# directions = ["N"]          # optional: "N" = uptown/Bronx/Queens-bound, "S" = downtown/Brooklyn-bound
-# routes = ["A", "C", "F"]    # optional: only these lines
+# "S" = Manhattan-bound from Astoria, "N" = toward Astoria/Queens, or both:
+# directions = ["S"]
+# directions = ["N", "S"]
+
+# Only show some lines ([] = every line at your stations):
+# routes = ["N", "W", "R"]
+
+# Hide trains you can't make — one number, or per station:
+# walk_minutes = 5
+# walk_minutes = { "Steinway St" = 7, "Broadway" = 4 }
+
+# title = "Morning commute"      # departures card title (default: the station names)
+# max_rows = 5
+# refresh_seconds = 30

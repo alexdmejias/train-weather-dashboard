@@ -44,7 +44,7 @@ SHOTS = [
 def render(scenario, page, hm, out: Path, scale=1, offline=False):
     now = datetime.now().astimezone().replace(hour=hm[0], minute=hm[1], second=0, microsecond=0)
     state = State(
-        now=now, station="Jay St-MetroTech", location="Brooklyn", page=page,
+        now=now, station="Steinway St & Broadway", location="Astoria", multi_station=True, page=page,
         departures=mock.trains(now, scenario), weather=mock.weather(now, scenario),
         trains_updated=now - timedelta(seconds=20), weather_updated=now - timedelta(minutes=4),
     )

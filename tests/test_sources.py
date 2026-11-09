@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import config  # noqa: E402
 from sources import mock, weather  # noqa: E402
 from sources.trains import mta_subway  # noqa: E402
 
@@ -88,3 +89,27 @@ def test_mock_scenarios_render_data():
         assert mock.trains(now, s)
         w = mock.weather(now, s)
         assert len(w.hourly) >= 5 and len(w.daily) == 7
+
+
+def test_defaults_work_without_config_file(tmp_path):
+    cfg = config.load(tmp_path / "missing.toml")
+    assert cfg["weather"]["zip"] == "11106"
+    lat, lon, name = config.place(cfg)
+    assert name == "Astoria" and 40.7 < lat < 40.8
+    ids = mta_subway.resolve_stations(cfg["subway"]["stations"], (lat, lon))
+    assert ids == ["G19", "R05"]  # Steinway St (M/R) and the Astoria Broadway (N/W), not the G's
+
+
+def test_config_file_overrides_only_what_it_sets(tmp_path):
+    f = tmp_path / "config.toml"
+    f.write_text('[subway]\nwalk_minutes = { "Steinway St" = 7 }\n[display]\nclock = "24h"\n')
+    cfg = config.load(f)
+    assert cfg["subway"]["walk_minutes"] == {"Steinway St": 7}
+    assert cfg["display"]["clock"] == "24h"
+    assert cfg["subway"]["stations"] == ["Steinway St", "Broadway"]  # untouched default
+
+
+def test_station_names_resolve_by_proximity():
+    jay = (40.6924, -73.9874)
+    assert mta_subway.resolve_stations(["Broadway"], jay) == ["G30"]          # Williamsburg G
+    assert set(mta_subway.resolve_stations(["Jay St-MetroTech"], jay)) == {"A41", "R29"}  # whole complex

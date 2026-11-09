@@ -14,26 +14,32 @@ from .models import Departure
 from .trains import mta_subway
 from .weather import parse as parse_weather
 
-# (route id, destination, minutes away) — modelled on Jay St-MetroTech
+# (route, destination, minutes away, station) — Manhattan-bound from
+# Steinway St (M/R) and Broadway (N/W) in Astoria, the default stations
+STEINWAY, BROADWAY = "Steinway St", "Broadway"
 TRAINS = {
     "normal": [
-        ("F", "Jamaica-179 St", 1),
-        ("A", "Inwood-207 St", 3),
-        ("R", "Forest Hills-71 Av", 6),
-        ("C", "168 St", 8),
-        ("FX", "Coney Island-Stillwell Av", 11),
-        ("A", "Far Rockaway-Mott Av", 13),
+        ("N", "Coney Island-Stillwell Av", 2, BROADWAY),
+        ("R", "Bay Ridge-95 St", 4, STEINWAY),
+        ("W", "Whitehall St-South Ferry", 6, BROADWAY),
+        ("M", "Middle Village-Metropolitan Av", 8, STEINWAY),
+        ("N", "Coney Island-Stillwell Av", 10, BROADWAY),
+        ("R", "Bay Ridge-95 St", 13, STEINWAY),
     ],
     "evening": [
-        ("A", "Far Rockaway-Mott Av", 0),
-        ("F", "Coney Island-Stillwell Av", 4),
-        ("C", "Euclid Av", 5),
-        ("R", "Bay Ridge-95 St", 9),
-        ("A", "Ozone Park-Lefferts Blvd", 12),
+        ("W", "Whitehall St-South Ferry", 0, BROADWAY),
+        ("M", "Middle Village-Metropolitan Av", 3, STEINWAY),
+        ("N", "Coney Island-Stillwell Av", 5, BROADWAY),
+        ("R", "Bay Ridge-95 St", 7, STEINWAY),
+        ("W", "Whitehall St-South Ferry", 11, BROADWAY),
     ],
 }
 TRAINS["rain"] = TRAINS["normal"]
-TRAINS["night"] = [("A", "Inwood-207 St", 7), ("F", "Jamaica-179 St", 12), ("R", "Forest Hills-71 Av", 19)]
+TRAINS["night"] = [
+    ("N", "Coney Island-Stillwell Av", 6, BROADWAY),
+    ("R", "Bay Ridge-95 St", 9, STEINWAY),
+    ("N", "Coney Island-Stillwell Av", 18, BROADWAY),
+]
 TRAINS["snow"] = TRAINS["evening"]
 
 # (base temp °F, daytime code, night code, rain hours from now)
@@ -49,11 +55,12 @@ WEATHER = {
 def trains(now: datetime, scenario: str = "normal") -> list[Departure]:
     routes = mta_subway.data()["routes"]
     out = []
-    for route, dest, mins in TRAINS.get(scenario, TRAINS["normal"]):
+    for route, dest, mins, station in TRAINS.get(scenario, TRAINS["normal"]):
         out.append(Departure(
             line=route.rstrip("X") if len(route) == 2 else route, destination=dest,
             depart_at=now + timedelta(minutes=mins, seconds=20),
             color=routes.get(route, {}).get("color"), express=route.endswith("X"),
+            station=station,
         ))
     return out
 

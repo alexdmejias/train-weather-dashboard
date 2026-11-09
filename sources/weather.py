@@ -11,11 +11,11 @@ from .models import DayForecast, HourForecast, Weather
 API = "https://api.open-meteo.com/v1/forecast"
 
 
-def fetch(cfg: dict) -> Weather:
-    imperial = cfg.get("units", "fahrenheit") == "fahrenheit"
+def fetch(latitude: float, longitude: float, units: str = "fahrenheit") -> Weather:
+    imperial = units == "fahrenheit"
     params = {
-        "latitude": cfg["latitude"],
-        "longitude": cfg["longitude"],
+        "latitude": latitude,
+        "longitude": longitude,
         "current": "temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m",
         "hourly": "temperature_2m,weather_code,precipitation_probability,is_day",
         "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",

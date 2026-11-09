@@ -24,21 +24,37 @@ minute ticks or new data arrives.
   destination, and minutes until it arrives.
 - **Weather:** [Open-Meteo](https://open-meteo.com) — free, no API key.
 
-### Pick your station
+## Configuration
 
-```bash
-python3 tools/find_station.py bedford
-#  L08    Bedford Av                           L
-python3 tools/find_station.py "jay st"
-#  A41    Jay St-MetroTech                     A C F
-#  R29    Jay St-MetroTech                     N R W
+**It works out of the box.** The defaults (in [`config.py`](config.py)) are:
+
+| Setting | Default |
+|---|---|
+| Weather location | zip **11106** (Astoria) |
+| Stations | **Steinway St** (M R) and **Broadway** (N W) |
+| Direction | Manhattan-bound (`"S"`) |
+| Clock / units | 12-hour, °F |
+
+To change anything, copy [`config.example.toml`](config.example.toml) to
+`config.toml` and uncomment only the lines you want — everything else keeps
+its default. For example:
+
+```toml
+[subway]
+directions = ["N", "S"]                                # both directions
+walk_minutes = { "Steinway St" = 7, "Broadway" = 4 }   # hide trains you can't catch
 ```
 
-Put the id(s) in `config.toml` under `[trains.mta_subway] stations = [...]`.
-Big station complexes have one id per line group — list them all. Optional
-filters: `directions = ["N"]` (uptown / toward the Bronx & Queens) or
-`["S"]`, and `routes = ["A", "C"]`. Set `walk_minutes` to hide trains you
-can't make it to.
+Stations can be names or ids. A name used by several stations
+("Broadway") picks the one nearest your zip. To look one up:
+
+```bash
+python3 tools/find_station.py steinway
+#  G19    Steinway St                          E F M R
+```
+
+A zip other than 11106 is looked up once online (Open-Meteo geocoding) and
+cached; or set `latitude`/`longitude` directly.
 
 `data/subway.json` (station names, the lines at each station, line colours)
 is built from the MTA's static schedule. Refresh it occasionally with
@@ -79,8 +95,9 @@ python3 tools/render.py --scenario rain --page 1 --scale 2 --out /tmp/x.png
    ssh pi@pizero.local 'cd ~/train-weather-dashboard && bash deploy/install.sh'
    ```
 
-4. Edit `~/train-weather-dashboard/config.toml` on the Pi (station ids,
-   weather latitude/longitude), then `sudo systemctl restart dashboard`.
+4. That's it — it starts with the defaults above. To customise, create
+   `~/train-weather-dashboard/config.toml` on the Pi, then
+   `sudo systemctl restart dashboard`.
 
 ## Iterate on the real screen
 
@@ -107,13 +124,14 @@ dashboard.py        main loop: display, touch, background fetching, hot reload
 layout.py           everything drawn on screen            (hot-reloaded)
 theme.py            colours, fonts, spacing               (hot-reloaded)
 icons.py            weather icons drawn in code           (hot-reloaded)
+config.py           settings + defaults (config.toml overrides)
 sources/            Open-Meteo weather, MTA subway feed, mock data
 data/subway.json    station + line table built from the MTA static GTFS
 tools/render.py     headless PNG renderer
 tools/find_station.py   look up station ids
 deploy/             systemd unit, installer, display config
 sync.sh             watch & push to the Pi
-config.example.toml copy to config.toml
+config.example.toml every option, commented out
 ```
 
 Fonts: [Inter](https://github.com/rsms/inter), SIL Open Font License (see `assets/fonts/OFL.txt`).
