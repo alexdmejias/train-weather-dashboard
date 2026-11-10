@@ -34,15 +34,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-ON_PI = platform.machine().startswith(("armv6", "armv7", "aarch64")) and Path("/dev/dri").exists()
-if ON_PI and not os.environ.get("SDL_VIDEODRIVER"):
-    os.environ["SDL_VIDEODRIVER"] = "kmsdrm"
+ON_PI = platform.machine().startswith(("armv6", "armv7", "aarch64")) and Path("/dev/fb0").exists()
+# On the Pi, draw straight to /dev/fb0 (hardware/framebuffer.py) with pygame
+# running headless. SDL's own kmsdrm driver needs EGL, which fails on some
+# Pi + OS combinations; set SDL_VIDEODRIVER=kmsdrm yourself to use it anyway.
+USE_FB = ON_PI and not os.environ.get("SDL_VIDEODRIVER")
+if USE_FB:
+    os.environ["SDL_VIDEODRIVER"] = "dummy"
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 import pygame  # noqa: E402
 
 import config  # noqa: E402
 from hardware.buttonshim import ButtonShim  # noqa: E402
+from hardware import framebuffer  # noqa: E402
 from hardware.display import Presenter, set_backlight  # noqa: E402
 import icons  # noqa: E402
 import layout  # noqa: E402
@@ -264,16 +269,27 @@ def main():
 
     pygame.display.init()
     pygame.font.init()
-    if ON_PI or args.fullscreen:
+    fb = console = None
+    if USE_FB:
         # native resolution: 800×480 on the Elecrow, 480×800 (portrait) on a HyperPixel 4.0
+        fb = framebuffer.Framebuffer()
+        print(f"/dev/fb0: {fb.w}×{fb.h}, {fb.bpp}-bit", flush=True)
+        screen = pygame.display.set_mode((fb.w, fb.h))
+        console = framebuffer.Console()
+    elif ON_PI or args.fullscreen:
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     else:
         w, h = (theme.H, theme.W) if args.portrait else (theme.W, theme.H)
         screen = pygame.display.set_mode((w, h))
     pygame.display.set_caption("Dashboard")
     pygame.mouse.set_visible(not ON_PI)
-    presenter = Presenter(screen, (theme.W, theme.H), disp["rotate"])
+    presenter = Presenter(screen, (theme.W, theme.H), disp["rotate"],
+                          flip=(lambda: fb.show(screen)) if fb else None)
     print(presenter.describe(), flush=True)
+    if fb:
+        for dev in framebuffer.touch_devices():
+            framebuffer.Touch(dev, screen.get_size(), disp["touch_swap_xy"],
+                              disp["touch_invert_x"], disp["touch_invert_y"]).start()
 
     fetcher = Fetcher(cfg, state, scenario)
     fetcher.start()
@@ -417,6 +433,8 @@ def main():
         shim.set_color((0, 0, 0))
         time.sleep(0.2)
     set_backlight(True)
+    if console:
+        console.restore()
     pygame.quit()
 
 

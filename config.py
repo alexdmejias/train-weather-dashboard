@@ -34,6 +34,10 @@ DEFAULTS: dict = {
         # Screens advance on their own every this many seconds (0 = never).
         # Space bar / any button press also moves on and restarts the timer.
         "page_seconds": 30,
+        # Pi touchscreen: fix taps landing in the wrong place (mirrored/rotated)
+        "touch_swap_xy": False,
+        "touch_invert_x": False,
+        "touch_invert_y": False,
     },
     "weather": {
         "zip": "11106",               # US zip code …
