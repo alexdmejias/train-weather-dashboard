@@ -59,28 +59,52 @@ class Framebuffer:
 
 
 class Console:
-    """Put the text console in graphics mode so its cursor and login prompt
-    don't draw over the dashboard. Needs CAP_SYS_TTY_CONFIG (see the service);
-    harmless if it isn't allowed."""
+    """Keep the text console (blinking cursor, login prompt) from drawing over
+    the dashboard.
+
+    Best: switch the console to graphics mode, so it stops drawing at all.
+    That needs CAP_SYS_TTY_CONFIG (granted in deploy/dashboard.service).
+    Fallback: clear it and hide the cursor with escape codes, which only needs
+    write access to the tty (the tty group).
+    """
+
+    HIDE, SHOW = b"\033[2J\033[H\033[?25l", b"\033[?25h"
 
     def __init__(self, tty: str = "/dev/tty0"):
         self._fd = None
+        self.graphics = False
         try:
             self._fd = os.open(tty, os.O_WRONLY | os.O_NOCTTY)
-            fcntl.ioctl(self._fd, KDSETMODE, KD_GRAPHICS)
         except OSError as e:
-            print(f"[display] can't hide the console ({e}); text may show through", flush=True)
-            if self._fd is not None:
-                os.close(self._fd)
-            self._fd = None
+            print(f"[display] can't open {tty} ({e}); the console cursor may show through. "
+                  "Add vt.global_cursor_default=0 to /boot/firmware/cmdline.txt", flush=True)
+            return
+        try:
+            fcntl.ioctl(self._fd, KDSETMODE, KD_GRAPHICS)
+            self.graphics = True
+        except OSError as e:
+            print(f"[display] console graphics mode not allowed ({e}); hiding the cursor instead", flush=True)
+            self._write(self.HIDE)
+
+    def _write(self, data: bytes):
+        try:
+            os.write(self._fd, data)
+        except OSError:
+            pass
 
     def restore(self):
-        if self._fd is not None:
-            try:
+        if self._fd is None:
+            return
+        try:
+            if self.graphics:
                 fcntl.ioctl(self._fd, KDSETMODE, KD_TEXT)
-            finally:
-                os.close(self._fd)
-                self._fd = None
+            else:
+                self._write(self.SHOW)
+        except OSError:
+            pass
+        finally:
+            os.close(self._fd)
+            self._fd = None
 
 
 # ── touch ─────────────────────────────────────────────────────────────────
