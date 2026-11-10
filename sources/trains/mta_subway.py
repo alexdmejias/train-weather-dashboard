@@ -120,7 +120,7 @@ def parse(blob: bytes, stations, directions=None, routes=None, now=None) -> list
     try:
         from google.transit import gtfs_realtime_pb2
     except ImportError as e:  # pragma: no cover
-        raise RuntimeError("needs gtfs-realtime-bindings — see README") from e
+        raise RuntimeError(f"needs gtfs-realtime-bindings + a recent protobuf ({e}) — re-run deploy/install.sh") from e
 
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.ParseFromString(blob)
