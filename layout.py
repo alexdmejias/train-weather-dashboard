@@ -14,22 +14,34 @@ import pygame
 import re
 
 import icons
+import scenery
 import theme as T
 from sources.alerts import ordered as order_alerts
 from sources.trains import mta_subway
 
 _cache: dict = {}
 BANNER_RECT = pygame.Rect(0, 0, 0, 0)   # where the alert banner was drawn (for taps)
+CARD_RECTS: list = []                    # cards on screen (effects hang lights / settle snow on them)
+SETTINGS_HITS: list = []                 # settings page: (rect, setting, value) for taps + focus order
 
 
 def pages(state) -> list[str]:
-    """Pages the user can tap through. The alerts page only exists when needed;
-    System is last and skipped by the auto-advance."""
-    return ["overview", "forecast"] + (["alerts"] if _alerts(state) else []) + ["system"]
+    """Pages the user can tap through. The alerts page only exists when needed."""
+    return ["overview", "forecast"] + (["alerts"] if _alerts(state) else [])
 
 
 def draw(screen: pygame.Surface, state) -> None:
-    screen.blit(_background(), (0, 0))
+    style = getattr(state, "style", "classic")
+    if T.use(style, T.season_for(state.now, getattr(state, "season", "auto"))):
+        _cache.clear()          # colours are baked into cached surfaces
+        icons._cache.clear()
+    screen.blit(scenery.background(), (0, 0))
+    CARD_RECTS.clear()
+    if getattr(state, "settings_open", False):
+        _settings_page(screen, state)
+        if getattr(state, "toast", None):
+            _toast(screen, state.toast[0])
+        return
     _header(screen, state)
     top = 92
     body = pygame.Rect(T.PAD, top, T.W - 2 * T.PAD, T.H - top - T.PAD - 6)
@@ -39,8 +51,6 @@ def draw(screen: pygame.Surface, state) -> None:
         _forecast_page(screen, body, state)
     elif page == "alerts":
         _alerts_page(screen, body, state)
-    elif page == "system":
-        _system_page(screen, body, state)
     else:
         _departures(screen, body, state)
     _page_tabs(screen, names, state.page % len(names), getattr(state, "page_progress", None))
@@ -57,7 +67,7 @@ def _toast(screen, msg):
     shadow = _panel(w + 12, h + 12, h // 2 + 6, (0, 0, 0))
     shadow.set_alpha(110)
     screen.blit(shadow, (r.x - 6, r.y - 2))
-    screen.blit(_panel(w, h, h // 2, (44, 52, 70), (70, 80, 102)), r)
+    screen.blit(_panel(w, h, h // 2, T.TOAST, T.TOAST_EDGE), r)
     screen.blit(t, t.get_rect(center=r.center))
 
 
@@ -85,7 +95,7 @@ def _header(screen, state):
 
     x += 22
     pygame.draw.line(screen, T.DIVIDER, (x - 11, y + 16), (x - 11, y + 56), 1)
-    day = _text(now.strftime("%A"), "semibold", 19, T.TEXT)
+    day = _text(now.strftime("%A"), "heading", 19, T.TEXT)
     date = _text(f"{now.strftime('%B')} {now.day}", "regular", 16, T.MUTED)
     screen.blit(day, (x, y + 13))
     screen.blit(date, (x, y + 37))
@@ -140,6 +150,9 @@ def _alert_banner(screen, r, alerts, state):
 
 def _level_colors(level):
     """(fill, border, accent) for an alert level."""
+    if T.STYLE != "classic":
+        accent = {"severe": T.BAD, "warning": T.WARN}.get(level, T.ACCENT)
+        return T.mix(T.CARD, accent, 0.16), T.mix(T.CARD, accent, 0.42), accent
     if level == "severe":
         return (54, 22, 30), (110, 42, 52), T.BAD
     if level == "warning":
@@ -203,7 +216,7 @@ def _insight(state):
 
 def _departures(screen, r, state):
     """Upcoming trains, one column per direction."""
-    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    _card(screen, r)
     ix = r.x + 22
     screen.blit(_tracked_fit(state.station.upper(), "semibold", 12, T.MUTED, 1.6, r.w - 160), (ix, r.y + 18))
     _status(screen, r.right - 22, r.y + 20, state.trains_updated, state.trains_error, state.now)
@@ -357,7 +370,7 @@ def _forecast_page(screen, r, state):
 
 def _today(screen, r, state):
     """Current conditions and the rest of today, in detail."""
-    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    _card(screen, r)
     ix = r.x + 22
     head = "TODAY" + (f"  ·  {state.location.upper()}" if state.location else "")
     screen.blit(_tracked(head, "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
@@ -387,7 +400,7 @@ def _today(screen, r, state):
     screen.blit(temp, (tx, y0 - 2))
     screen.blit(_text("°", "display-light", 38, T.MUTED), (tx + temp.get_width() - 2, y0 + 4))
     cx = tx + temp.get_width() + 34
-    screen.blit(_fit(icons.condition(w.code), "semibold", 19, T.TEXT, r.right - 22 - cx), (cx, y0 + 12))
+    screen.blit(_fit(icons.condition(w.code), "heading", 19, T.TEXT, r.right - 22 - cx), (cx, y0 + 12))
     screen.blit(_text(f"H {w.high:.0f}°   L {w.low:.0f}°", "regular", 15, T.MUTED), (cx, y0 + 40))
 
     # details grid
@@ -429,7 +442,7 @@ def _today(screen, r, state):
 
 def _next_days(screen, r, state):
     """The next three days, compact."""
-    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    _card(screen, r)
     ix = r.x + 20
     screen.blit(_tracked("NEXT DAYS", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
     w = state.weather
@@ -444,7 +457,7 @@ def _next_days(screen, r, state):
         if i:
             pygame.draw.line(screen, T.DIVIDER, (ix, y), (r.right - 20, y), 1)
         name = "Tomorrow" if i == 0 else d.day.strftime("%A")
-        screen.blit(_text(name, "semibold", 18, T.TEXT), (ix, cy - 30))
+        screen.blit(_text(name, "heading", 18, T.TEXT), (ix, cy - 30))
         cond = _fit(icons.condition(d.code), "regular", 14, T.MUTED, r.w - 110)
         screen.blit(cond, (ix, cy - 5))
         if d.precip_prob >= 20:
@@ -468,7 +481,7 @@ def _uv(uv) -> str:
     return f"{uv:.0f} · {level}"
 
 
-# ── system page ───────────────────────────────────────────────────────────
+# ── build / update status ─────────────────────────────────────────────────
 
 UPDATE_COLORS = {"latest": "GOOD", "pending": "ACCENT", "failed": "WARN"}
 
@@ -488,69 +501,32 @@ def _build_tag(screen, state):
     screen.blit(t, (x, y))
 
 
-def _system_page(screen, r, state):
-    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
-    ix = r.x + 22
-    screen.blit(_tracked("SYSTEM", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
+def _build_status(screen, right, state):
+    """Settings header, right-aligned at ``right``: "● Build 214 · Up to date" over
+    "29c57b7 · built Mon 12:42 PM · checked 3m ago"."""
     build, update = getattr(state, "build", None), getattr(state, "update", None)
-
-    # hero: is this the latest version?
-    color = _update_color(update)
-    cy = r.y + 78
-    screen.blit(_glow(56, color), (ix - 14, cy - 28 - 14))
-    pygame.draw.circle(screen, color, (ix + 14, cy), 14)
-    if getattr(update, "state", "") == "latest":     # check mark
-        pygame.draw.lines(screen, T.CARD, False, [(ix + 7, cy), (ix + 12, cy + 5), (ix + 21, cy - 5)], 3)
-    else:
-        pygame.draw.circle(screen, T.CARD, (ix + 14, cy), 5)
-    msg = update.message if update else "Version unknown"
-    screen.blit(_fit(msg, "semibold", 24, T.TEXT, r.w - 100), (ix + 44, cy - 24))
+    top = (update.message if update else "Version unknown") if build else "Development copy"
     if build:
-        sub = f"{build.label} · {build.short}"
+        top = f"{build.label}  ·  {top}"
+        bits = [build.short]
         if build.date:
-            sub += f" · built {_when(build.date, state)}"
+            bits.append(f"built {_when(build.date, state)}")
+        if update and update.checked:
+            bits.append(f"checked {_ago(update.checked, state.now)}")
+        sub = "  ·  ".join(bits)
     else:
-        sub = "Not a git clone — copied with sync.sh?"
-    screen.blit(_fit(sub, "regular", 15, T.MUTED, r.w - 100), (ix + 44, cy + 6))
-
-    # details
-    def feed(name):
-        updated, error = state.updated.get(name), state.errors.get(name)
-        if error:
-            return f"Offline · {_ago(updated, state.now)}" if updated else "Offline"
-        return f"Live · {_ago(updated, state.now)}" if updated else "Connecting"
-
-    checked = getattr(update, "checked", None)
-    started = getattr(state, "started", None)
-    stats = [
-        ("CHANGE", build.subject if build and build.subject else "–"),
-        ("LAST UPDATE CHECK", _ago(checked, state.now) if checked else "–"),
-        ("RUNNING SINCE", f"{_when(started, state)}" if started else "–"),
-        ("TRAINS", feed("trains")),
-        ("WEATHER", feed("weather")),
-        ("NETWORK", getattr(state, "ip", None) or "Offline"),
-    ]
-    gy = r.y + 130
-    pygame.draw.line(screen, T.DIVIDER, (ix, gy - 12), (r.right - 22, gy - 12), 1)
-    cell_w = (r.w - 44) // 3
-    for i, (label, value) in enumerate(stats):
-        if i == 0:                      # the commit message gets the whole first row
-            x, y, w = ix, gy, r.w - 44
-        else:
-            row, col = divmod(i - 1, 3)
-            x, y, w = ix + col * cell_w, gy + (row + 1) * 56, cell_w - 12
-        screen.blit(_tracked(label, "semibold", 10, T.FAINT, 1.2), (x, y))
-        screen.blit(_fit(value, "semibold", 17, T.TEXT_SOFT, w), (x, y + 15))
-
-    hint = "Updates are checked every 5 min · press Space to go back"
-    t = _text(hint, "regular", 13, T.FAINT)
-    screen.blit(t, (ix, r.bottom - 18 - t.get_height()))
+        sub = "not a git clone · no auto-update"
+    t1 = _text(top, "semibold", 15, T.TEXT)
+    t2 = _text(sub, "regular", 13, T.MUTED)
+    screen.blit(t1, (right - t1.get_width(), 28))
+    screen.blit(t2, (right - t2.get_width(), 50))
+    pygame.draw.circle(screen, _update_color(update), (right - t1.get_width() - 10, 28 + t1.get_height() // 2), 5)
 
 
 # ── alerts page ───────────────────────────────────────────────────────────
 
 def _alerts_page(screen, r, state):
-    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    _card(screen, r)
     ix = r.x + 22
     screen.blit(_tracked("ALERTS", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
     alerts = _alerts(state)
@@ -702,7 +678,7 @@ def _status(screen, right, y, updated, error, now, compact=False):
     pygame.draw.circle(screen, color, (right - t.get_width() - 10, y + t.get_height() // 2 - 1), 4)
 
 
-TAB_LABELS = {"overview": "Departures", "forecast": "Forecast", "alerts": "Alerts", "system": "System"}
+TAB_LABELS = {"overview": "Departures", "forecast": "Forecast", "alerts": "Alerts"}
 
 
 def _page_tabs(screen, names, current, progress):
@@ -778,6 +754,41 @@ def _panel(w, h, radius, fill, border=None):
     return _cache[key]
 
 
+def _card(screen, r):
+    """A content card: solid, frosted (window style) or paper with a soft shadow (almanac)."""
+    CARD_RECTS.append(pygame.Rect(r))
+    key = ("card", r.w, r.h, T.KEY)
+    if key not in _cache:
+        radius = T.RADIUS
+        if T.CARD_SHADOW:
+            pad = 10
+            s = pygame.Surface((r.w + 2 * pad, r.h + 2 * pad), pygame.SRCALPHA)
+            for i in range(pad, 0, -2):
+                sh = _panel(r.w + 2 * i, r.h + 2 * i, radius + i, (60, 40, 20))
+                sh = sh.copy()
+                sh.set_alpha(round(T.CARD_SHADOW * (1 - i / pad) ** 1.5) + 2)
+                s.blit(sh, (pad - i, pad - i + 3))
+            s.blit(_panel(r.w, r.h, radius, T.CARD, T.CARD_BORDER), (pad, pad))
+            _cache[key] = (s, -pad)
+        elif T.CARD_ALPHA < 255:  # frosted glass: a blurred, tinted copy of the scenery
+            bg = scenery.background().subsurface(r)
+            small = pygame.transform.smoothscale(bg, (max(1, r.w // 24), max(1, r.h // 24)))
+            glass = pygame.transform.smoothscale(small, r.size)
+            tint = pygame.Surface(r.size)
+            tint.fill(T.CARD)
+            tint.set_alpha(T.CARD_ALPHA)
+            glass.blit(tint, (0, 0))
+            s = _panel(r.w, r.h, radius, (255, 255, 255), T.CARD_BORDER).copy()
+            s.blit(glass, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+            # BLEND_RGB_MULT against white keeps the glass and darkens only the border ring
+            ring = _panel(r.w, r.h, radius, (0, 0, 0, 0), T.CARD_BORDER)
+            s.blit(ring, (0, 0))
+            _cache[key] = (s, 0)
+        else:
+            _cache[key] = (_panel(r.w, r.h, radius, T.CARD, T.CARD_BORDER), 0)
+    s, off = _cache[key]
+    screen.blit(s, (r.x + off, r.y + off))
+
 
 def _glow(d, color):
     """Soft radial light behind the big weather icon."""
@@ -793,15 +804,6 @@ def _glow(d, color):
             pygame.draw.circle(s, (*color, a), (c, c), round(r))
         _cache[key] = s
     return _cache[key]
-
-
-def _background():
-    if "bg" not in _cache:
-        s = pygame.Surface((T.W, T.H))
-        for y in range(T.H):
-            pygame.draw.line(s, T.mix(T.BG_TOP, T.BG_BOTTOM, y / T.H), (0, y), (T.W, y))
-        _cache["bg"] = s
-    return _cache["bg"]
 
 
 # ── text helpers ──────────────────────────────────────────────────────────
@@ -875,3 +877,73 @@ def _ago(t: datetime, now: datetime) -> str:
     if s < 3600:
         return f"{int(s // 60)}m ago"
     return f"{int(s // 3600)}h ago"
+
+
+# ── settings page ─────────────────────────────────────────────────────────
+
+# (setting, label, [(value, option label), …]); "try_*" rows play an effect
+SETTINGS_ROWS = [
+    ("style", "Look", [("classic", "Classic"), ("hearth", "Hearth"), ("almanac", "Almanac"), ("window", "Window")]),
+    ("season", "Season", [("auto", "Auto"), ("autumn", "Autumn"), ("winter", "Winter"), ("spring", "Spring"),
+                          ("summer", "Summer")]),
+    ("effects", "Effects", [("on", "On"), ("subtle", "Subtle"), ("off", "Off")]),
+    ("clock", "Clock", [("12h", "12-hour"), ("24h", "24-hour")]),
+    ("page_seconds", "Auto-advance", [(0, "Off"), (15, "15 s"), (30, "30 s"), (60, "1 min")]),
+    ("try", "Try weather", [("rain", "Rain"), ("snow", "Snow"), ("wind", "Wind"), ("thunder", "Storm"),
+                            ("fog", "Fog")]),
+    ("try", "Try season", [("leaves", "Leaves"), ("petals", "Petals"), ("fireflies", "Fireflies")]),
+    ("try", "Try holiday", [("christmas", "Christmas"), ("halloween", "Halloween"), ("fireworks", "Fireworks"),
+                            ("hearts", "Hearts"), ("confetti", "Confetti")]),
+]
+
+
+def setting_value(state, key):
+    if key == "clock":
+        return "24h" if state.clock24 else "12h"
+    return getattr(state, key, None)
+
+
+def _settings_page(screen, state):
+    SETTINGS_HITS.clear()
+    focus = getattr(state, "settings_focus", -1)
+
+    x, y = T.PAD + 2, 18
+    screen.blit(_text("Settings", "heading", 30, T.TEXT), (x, y))
+    screen.blit(_text("Changes save as you tap", "regular", 15, T.MUTED), (x + 2, y + 40))
+
+    def chip(r, label, selected, idx, primary=False):
+        fill = T.ACCENT if (selected or primary) else T.CARD_HI
+        ink = T.BG_BOTTOM if (selected or primary) else T.TEXT
+        if idx == focus:
+            screen.blit(_panel(r.w + 6, r.h + 6, (r.h + 6) // 2, T.TEXT), (r.x - 3, r.y - 3))
+        screen.blit(_panel(r.w, r.h, r.h // 2, fill, None if (selected or primary) else T.CARD_BORDER), r)
+        t = _text(label, "semibold" if (selected or primary) else "medium", 15, ink)
+        screen.blit(t, t.get_rect(center=r.center))
+
+    done = pygame.Rect(T.W - T.PAD - 96, 26, 96, 40)
+    SETTINGS_HITS.append((done, "done", None))
+    chip(done, "Done", False, 0, primary=True)
+    _build_status(screen, done.x - 24, state)
+
+    body = pygame.Rect(T.PAD, 92, T.W - 2 * T.PAD, T.H - 92 - T.PAD - 6)
+    _card(screen, body)
+    CARD_RECTS.clear()          # no lights or snow on top of the settings
+    row_h = (body.h - 12) // len(SETTINGS_ROWS)
+    lx = body.x + 22
+    ox = body.x + 160
+    for i, (key, label, options) in enumerate(SETTINGS_ROWS):
+        cy = body.y + 6 + i * row_h + row_h // 2
+        if i and key == "try" and SETTINGS_ROWS[i - 1][0] != "try":
+            pygame.draw.line(screen, T.DIVIDER, (lx, cy - row_h // 2), (body.right - 22, cy - row_h // 2), 1)
+        screen.blit(_text(label, "medium", 15, T.TEXT_SOFT if key != "try" else T.MUTED), (lx, cy - 10))
+        current = setting_value(state, key)
+        cx = ox
+        for value, olabel in options:
+            w = _text(olabel, "semibold", 15, T.TEXT).get_width() + 30
+            r = pygame.Rect(cx, cy - 16, w, 32)
+            SETTINGS_HITS.append((r, key, value))
+            chip(r, olabel, key != "try" and value == current, len(SETTINGS_HITS) - 1)
+            cx += w + 8
+
+    hint = _text("Tap any corner of the screen 3 times to come back here", "regular", 12, T.FAINT)
+    screen.blit(hint, hint.get_rect(midtop=(T.W // 2, T.H - 22)))

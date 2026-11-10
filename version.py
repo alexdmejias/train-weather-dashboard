@@ -91,16 +91,3 @@ def update_status(build: Build | None, root: Path = ROOT) -> UpdateStatus:
         bad = ""
     return UpdateStatus("failed" if bad == latest else "pending", latest, checked)
 
-
-def local_ip() -> str | None:
-    """This device's address on the local network (for ssh). Sends nothing:
-    connecting a UDP socket only picks the outgoing interface."""
-    import socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("192.0.2.1", 9))   # TEST-NET address, never actually contacted
-        return s.getsockname()[0]
-    except OSError:
-        return None
-    finally:
-        s.close()

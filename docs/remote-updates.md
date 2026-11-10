@@ -7,7 +7,7 @@ updates itself, with no laptop, `rsync` or `ssh` involved.
 
 | Constraint | Consequence |
 |---|---|
-| **Pi Zero W is ARMv6** (512 MB) | GitHub's self-hosted Actions runner only ships for ARMv7/ARM64, so the Pi **can't run a runner**. Docker images and balena-style OS agents are heavy or unsupported. |
+| **Small Pi** (Pi 3, 1 GB; originally a Pi Zero W) | A Pi 3 *could* host GitHub's self-hosted Actions runner (a Zero W can't — ARMv6), but it would eat the RAM and CPU the animations use, and it gives CI a way into the home network. Docker images and balena-style OS agents are heavy for it too. |
 | **Behind home NAT**, no public IP | CI can't reach the Pi unless it gets a tunnel/VPN. Anything the Pi *pulls* works with no extra setup. |
 | **Repo is public** | The Pi can `git fetch` anonymously, with no deploy key or token on the device. |
 | **Plain Python, no build step** | The "artifact" is just the source tree. `git` is the simplest transport. |
@@ -36,7 +36,7 @@ that `sync.sh` does.
 - **+** Instant, and the run shows deploy success or failure in GitHub.
 - **−** Needs secrets in GitHub (Tailscale OAuth client and an SSH private key)
   that grant shell access to a device on your home network.
-- **−** Tailscale on a Pi Zero W costs noticeable CPU/RAM. If the Pi is offline
+- **−** Tailscale on a small Pi costs noticeable CPU/RAM. If the Pi is offline
   when CI runs, the deploy just fails, and nothing retries.
 - Worth it if you **already use Tailscale**. It also gives you remote `ssh`
   and screenshots from anywhere.
@@ -97,9 +97,8 @@ deploy/install.sh --auto-update installs git + the timer
   build (`Build 214` = the number of commits, so it only goes up) with a dot:
   green = the newest commit on `deploy`, blue = a newer one is installing,
   amber = the newer one failed its health check and was rolled back. The
-  **System** page (tap/Space past the others, or press `V`) has the commit,
-  when it was built, when the updater last checked, and the Pi's IP address.
-  It compares `HEAD` with `.git/FETCH_HEAD`, which `update.sh` refreshes every
+  **Settings** page header spells it out: build, status, commit, when it was
+  built and when the updater last checked. It compares `HEAD` with `.git/FETCH_HEAD`, which `update.sh` refreshes every
   5 min, so it makes no network requests of its own.
 
 ### Switching an existing Pi over
@@ -108,7 +107,7 @@ The README's setup copies files with `rsync --exclude .git`, so the Pi has no
 repo. Make it a clone once (your `config.toml` is kept):
 
 ```bash
-ssh pi@pizero.local
+ssh pi@dashboard.local
 ```
 
 ```bash

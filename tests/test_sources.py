@@ -251,11 +251,3 @@ def test_current_build_reads_git():
     if b is None:            # e.g. a source tarball
         return
     assert len(b.sha) == 40 and b.number and b.number > 0
-
-
-def test_auto_advance_skips_system_page():
-    import dashboard
-    names = ["overview", "forecast", "system"]
-    assert dashboard.next_auto_page(names, 0) == 1
-    assert dashboard.next_auto_page(names, 1) == 0          # not onto System
-    assert dashboard.next_auto_page(names, 2) == 0          # System times out back to Departures

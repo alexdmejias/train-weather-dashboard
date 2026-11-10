@@ -21,6 +21,9 @@ import requests
 
 ROOT = Path(__file__).resolve().parent
 CACHE = Path.home() / ".cache" / "train-weather-dashboard" / "places.json"
+# Choices made on the on-screen settings page; they win over config.toml.
+SETTINGS = ROOT / "settings.json"
+SETTABLE = {"display": {"style", "season", "clock", "page_seconds"}, "effects": {"mode"}}
 
 DEFAULTS: dict = {
     "display": {
@@ -34,6 +37,13 @@ DEFAULTS: dict = {
         # Screens advance on their own every this many seconds (0 = never).
         # Space bar / any button press also moves on and restarts the timer.
         "page_seconds": 30,
+        # Look: "classic" (cool and dark), or one of the cozy ones — "hearth"
+        # (warm dark cards), "almanac" (light paper) or "window" (frosted cards
+        # over a seasonal landscape).
+        "style": "classic",
+        # Palette for the cozy looks: "auto" follows the calendar, or pin one of
+        # "autumn", "winter", "spring", "summer".
+        "season": "auto",
         # Pi touchscreen: fix taps landing in the wrong place (mirrored/rotated)
         "touch_swap_xy": False,
         "touch_invert_x": False,
@@ -66,7 +76,7 @@ DEFAULTS: dict = {
         "enabled": True,
         "i2c_bus": "auto",            # or a number, e.g. 3 — see README for HyperPixel wiring
         "led_brightness": 0.15,       # status LED: green ok · amber line trouble · red severe/offline
-        # What each button does: overview, forecast, alerts, system, next_page,
+        # What each button does: overview, forecast, alerts, next_page,
         # prev_page, next_alert, refresh, sleep
         "a": "overview",
         "b": "forecast",
@@ -78,8 +88,8 @@ DEFAULTS: dict = {
     # names, lower-case without spaces ("space", "right", "audionext",
     # "volumeup", "f13"), optionally with modifiers: "ctrl+c", "ctrl+shift+1".
     # Unmapped keys are printed to the log so you can find their names.
-    # Actions: next_page, prev_page, overview, forecast, alerts, system, next_alert,
-    # refresh, sleep, quit, button_a … button_e (act like Button SHIM A–E),
+    # Actions: next_page, prev_page, overview, forecast, alerts, next_alert,
+    # refresh, sleep, settings, quit, button_a … button_e (act like Button SHIM A–E),
     # or "" to ignore a key.
     "keys": {
         "space": "next_page",
@@ -96,6 +106,7 @@ DEFAULTS: dict = {
         "audiomute": "sleep",
         "return": "refresh",
         "r": "refresh",
+        "s": "settings",
         "q": "quit",
         "escape": "quit",
         "1": "button_a",
@@ -103,7 +114,17 @@ DEFAULTS: dict = {
         "3": "button_c",
         "4": "button_d",
         "5": "button_e",
-        "v": "system",                # build number + update status
+    },
+    "effects": {
+        # Animated touches: rain, snow, wind, falling leaves, Christmas lights…
+        # "auto" = on, except on a Pi Zero (too slow to animate); or "on",
+        # "subtle" (fewer, calmer) or "off".
+        "mode": "auto",
+        "fps": 24,                    # frames per second while something is moving
+        "holidays": True,             # Christmas, Halloween, New Year, 4th of July, Valentine's
+        # Your own dates get confetti and a message, e.g.
+        # dates = { "03-14" = "Happy birthday, Sam!", "2027-06-01" = "Happy anniversary" }
+        "dates": {},
     },
     "alerts": {
         "subway": True,               # MTA delays, suspensions and planned work on your lines
@@ -125,10 +146,32 @@ def load(path: Path | None = None) -> dict:
     if path.exists():
         with open(path, "rb") as f:
             _merge(cfg, tomllib.load(f), path.name)
+    _merge(cfg, read_settings(), SETTINGS.name)
     return cfg
 
 
-FREEFORM = {"keys"}   # tables whose entries are user-chosen names, merged entry by entry
+def read_settings() -> dict:
+    """settings.json, limited to what the settings page may change."""
+    try:
+        data = json.loads(SETTINGS.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {sec: {k: v for k, v in vals.items() if k in SETTABLE[sec]}
+            for sec, vals in data.items() if sec in SETTABLE and isinstance(vals, dict)}
+
+
+def save_setting(section: str, key: str, value) -> None:
+    data = read_settings()
+    data.setdefault(section, {})[key] = value
+    try:
+        tmp = SETTINGS.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n")
+        tmp.replace(SETTINGS)
+    except OSError as e:
+        print(f"[settings] couldn't save {SETTINGS}: {e}", flush=True)
+
+
+FREEFORM = {"keys", "dates"}   # tables whose entries are user-chosen names, merged entry by entry
 
 
 def _merge(base: dict, override: dict, where: str, prefix=""):
@@ -137,7 +180,7 @@ def _merge(base: dict, override: dict, where: str, prefix=""):
         if key not in base:
             print(f"{where}: ignoring unknown setting {name!r}")
         elif key in FREEFORM and isinstance(value, dict):
-            base[key].update({normalize_key(k): v for k, v in value.items()})
+            base[key].update({(normalize_key(k) if key == "keys" else str(k)): v for k, v in value.items()})
         elif isinstance(base[key], dict) and isinstance(value, dict) and key != "walk_minutes":
             _merge(base[key], value, where, name + ".")
         else:
