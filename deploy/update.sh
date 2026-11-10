@@ -25,11 +25,27 @@ main() {
     exit 0   # already tried this one and rolled back
   fi
 
-  echo "updating ${old::7} → ${new::7}"
   changed=$(git diff --name-only "$old" "$new")
+  reinstall=0
+  if echo "$changed" | grep -qE '^(requirements\.txt|deploy/(install\.sh|.*\.service|.*\.timer))$'; then
+    reinstall=1
+  fi
+
+  # The timer has no terminal, so sudo must work without a password. Check
+  # before touching the checkout: otherwise the new code lands on disk, the
+  # restart fails, and the old process keeps running (hot-reloading half of
+  # the new files). Nothing is changed, so the next tick simply retries.
+  if ! can_sudo "$reinstall"; then
+    echo "✗ can't update to ${new::7}: $USER needs passwordless sudo for" \
+         "$([ "$reinstall" = 1 ] && echo "install.sh (this update changes dependencies or units)" || echo "systemctl restart $SERVICE")." \
+         "See docs/remote-updates.md → Permissions." >&2
+    exit 1
+  fi
+
+  echo "updating ${old::7} → ${new::7}"
   git reset --hard --quiet "$new"
 
-  if echo "$changed" | grep -qE '^(requirements\.txt|deploy/(install\.sh|.*\.service|.*\.timer))$'; then
+  if [ "$reinstall" = 1 ]; then
     echo "dependencies or units changed → re-running install.sh"
     bash deploy/install.sh --auto-update
   fi
@@ -46,13 +62,29 @@ main() {
   fi
 }
 
-# Healthy = still the same running process 30 s after start (no crash loop;
-# Restart=always would otherwise hide a crash by starting a new PID).
+# Can sudo run what this update needs without a password? `sudo -n -l <cmd>`
+# asks the sudoers policy without running the command or prompting.
+can_sudo() {
+  if [ "$1" = 1 ]; then
+    sudo -n true 2>/dev/null
+  else
+    sudo -n -l systemctl restart "$SERVICE" >/dev/null 2>&1
+  fi
+}
+
+# Healthy = a NEW process that is still the same process 30 s after start (no
+# crash loop; Restart=always would otherwise hide a crash by starting a new
+# PID). Requiring a new PID means a restart that didn't happen can't pass.
 restart_and_check() {
-  sudo systemctl restart "$SERVICE"
+  local before pid
+  before=$(systemctl show -p MainPID --value "$SERVICE")
+  if ! sudo -n systemctl restart "$SERVICE"; then
+    echo "✗ couldn't restart $SERVICE" >&2
+    return 1
+  fi
   sleep 5
-  local pid
   pid=$(systemctl show -p MainPID --value "$SERVICE")
+  [ "$pid" != 0 ] && [ "$pid" != "$before" ] || return 1
   sleep 30
   [ "$(systemctl is-active "$SERVICE")" = active ] &&
     [ "$pid" != 0 ] && [ "$(systemctl show -p MainPID --value "$SERVICE")" = "$pid" ]

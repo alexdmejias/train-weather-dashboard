@@ -46,6 +46,15 @@ if [ "$AUTO_UPDATE" = 1 ]; then
   sudo systemctl enable --now dashboard-update.timer
 fi
 
+# The update timer runs without a terminal, so its sudo calls (restart, and
+# re-running this script when dependencies change) can't prompt. Drop the
+# cached credentials from this run and check that sudo still works.
+NEEDS_SUDO=0
+if [ "$AUTO_UPDATE" = 1 ]; then
+  sudo -k
+  sudo -n true 2>/dev/null || NEEDS_SUDO=1
+fi
+
 echo
 echo "Done. Next:"
 echo "  • it runs with the defaults (11106, Steinway St + Broadway)"
@@ -56,4 +65,11 @@ echo "      HyperPixel 4.0:       deploy/hyperpixel4.config.txt.snippet"
 echo "  • logs:    journalctl -u dashboard -f"
 echo "  • restart: sudo systemctl restart dashboard"
 [ "$AUTO_UPDATE" = 1 ] && echo "  • updates: journalctl -u dashboard-update  (force a check: sudo systemctl start dashboard-update)"
+if [ "$NEEDS_SUDO" = 1 ]; then
+  echo
+  echo "⚠ $USER_NAME needs a password for sudo, so auto-updates can't restart the dashboard."
+  echo "  Allow passwordless sudo (what Raspberry Pi OS gives its default user):"
+  echo "    echo '$USER_NAME ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/010_$USER_NAME-nopasswd && sudo chmod 440 /etc/sudoers.d/010_$USER_NAME-nopasswd"
+  echo "  See docs/remote-updates.md → Permissions for a narrower option."
+fi
 true
