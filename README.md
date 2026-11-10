@@ -191,9 +191,11 @@ python3 dashboard.py --fullscreen              # fill the screen instead of an 8
 - The first run with a zip other than 11106 needs the network once to look up
   its coordinates (cached in `~/.cache/train-weather-dashboard/`).
 
-`layout.py`, `theme.py`, `scenery.py` and `icons.py` **hot-reload on save** — keep the
-window open and tweak the design live. A layout bug shows an error screen
-instead of crashing; fix it and save again.
+`layout.py`, `theme.py`, `scenery.py`, `effects.py` and `icons.py` **hot-reload on
+save** — keep the window open and tweak the design live. A layout bug shows an
+error screen instead of crashing; fix it and save again. Changing any other
+module (`dashboard.py`, `sources/`, `config.py`…) restarts the dashboard by
+itself, so the data on screen always comes from the same code that draws it.
 
 **Screens advance on their own every 30 s** (Departures → Forecast → Alerts,
 when there are any). Press **Space** to move on immediately — that also

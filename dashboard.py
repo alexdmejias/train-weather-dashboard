@@ -5,8 +5,9 @@
     python3 dashboard.py --mock        # fake data, no network needed
 
 On a Raspberry Pi it draws straight to the display (no desktop needed). On a
-laptop it opens an 800×480 window. layout.py, theme.py, scenery.py and icons.py are
-reloaded automatically when they change, so you can tweak the design live.
+laptop it opens an 800×480 window. layout.py, theme.py, scenery.py, effects.py and
+icons.py are reloaded automatically when they change, so you can tweak the design
+live; a change to any other module restarts the dashboard by itself.
 
 Space = next screen (screens also advance on their own every 30 s) ·
                1–5 = Button SHIM A–E · R = refresh data · S = settings · Q/Esc = quit
@@ -221,31 +222,71 @@ class Fetcher(threading.Thread):
 
 # ── hot reload ────────────────────────────────────────────────────────────
 
+def project_files(root: Path = ROOT) -> set[Path]:
+    """Source files of every module loaded from this project folder."""
+    out = set()
+    for m in list(sys.modules.values()):
+        f = getattr(m, "__file__", None)
+        if f and f.endswith(".py") and Path(f).resolve().is_relative_to(root):
+            out.add(Path(f).resolve())
+    return out
+
+
 class Reloader:
-    def __init__(self, modules):
-        self.modules = modules
-        self.mtimes = {m: self._mtime(m) for m in modules}
+    """Picks up code changes while the dashboard runs.
 
-    @staticmethod
-    def _mtime(m):
-        try:
-            return os.path.getmtime(m.__file__)
-        except OSError:
-            return 0
+    The drawing modules (``hot``) are reloaded in place. Any other project
+    module can't be: the data already in memory was built by the old code, so
+    new drawing code would trip over it (e.g. ``'Weather' object has no
+    attribute 'wind_dir'`` after an update added that field). A change there
+    restarts the whole process instead.
 
-    def check(self) -> bool:
-        changed = [m for m in self.modules if self._mtime(m) != self.mtimes[m]]
+    A git pull or rsync writes files one after another, so nothing happens
+    until the files have stopped changing.
+    """
+
+    INTERVAL = 0.25   # seconds between looks at the files
+
+    def __init__(self, hot, watch=None):
+        self.hot = list(hot)
+        self.hot_files = {Path(m.__file__).resolve() for m in self.hot}
+        self.files = sorted(set(project_files() if watch is None else map(Path, watch)) | self.hot_files)
+        self.loaded = self.seen = self._snapshot()
+        self.checked = 0.0
+
+    def _snapshot(self) -> dict:
+        out = {}
+        for f in self.files:
+            try:
+                out[f] = os.path.getmtime(f)
+            except OSError:
+                out[f] = 0
+        return out
+
+    def check(self) -> str | None:
+        """None, "reload" (drawing modules reloaded) or "restart" (the caller should restart)."""
+        if time.monotonic() - self.checked < self.INTERVAL:
+            return None
+        self.checked = time.monotonic()
+        now = self._snapshot()
+        if now != self.seen:          # still being written: look again next time
+            self.seen = now
+            return None
+        changed = [f for f in self.files if now[f] != self.loaded[f]]
         if not changed:
-            return False
-        for m in self.modules:  # reload all, in order, so references stay in sync
-            self.mtimes[m] = self._mtime(m)
+            return None
+        self.loaded = now
+        names = ", ".join(str(f.relative_to(ROOT)) if f.is_relative_to(ROOT) else f.name for f in changed)
+        if any(f not in self.hot_files for f in changed):
+            print(f"↻ {names} changed — restarting", flush=True)
+            return "restart"
         try:
-            for m in self.modules:
+            for m in self.hot:  # reload all, in order, so references stay in sync
                 importlib.reload(m)
-            print("↻ reloaded " + ", ".join(Path(m.__file__).name for m in changed), flush=True)
+            print(f"↻ reloaded {names}", flush=True)
         except Exception as e:
             print(f"✗ reload failed: {type(e).__name__}: {e}", flush=True)
-        return True
+        return "reload"
 
 
 # ── main loop ─────────────────────────────────────────────────────────────
@@ -332,6 +373,7 @@ def main():
 
     shot = threading.Event()
     running = [True]
+    restart = False                           # code changed on disk: start again with the new code
     if hasattr(signal, "SIGUSR1"):  # `pkill -USR1 -f dashboard.py` → /tmp/dashboard.png
         signal.signal(signal.SIGUSR1, lambda *_: shot.set())
     signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
@@ -515,7 +557,11 @@ def main():
         if state.toast and time.monotonic() > state.toast[1]:
             state.toast = None
 
-        reloaded = reloader.check()
+        change = reloader.check()
+        if change == "restart":
+            restart = True
+            break
+        reloaded = change == "reload"
         if time.monotonic() - update_checked > 30:   # did the updater find something newer?
             update_checked = time.monotonic()
             status = version.update_status(state.build)
@@ -586,6 +632,9 @@ def main():
     if console:
         console.restore()
     pygame.quit()
+    if restart and running[0]:              # (not if we were asked to stop meanwhile)
+        # same PID, so systemd and the updater's health check see no change
+        os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
 KEY_ACTIONS = {"next_page", "prev_page", "overview", "forecast", "alerts", "next_alert",
