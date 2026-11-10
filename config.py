@@ -44,6 +44,10 @@ DEFAULTS: dict = {
         # Palette for the cozy looks: "auto" follows the calendar, or pin one of
         # "autumn", "winter", "spring", "summer".
         "season": "auto",
+        # Pi touchscreen: fix taps landing in the wrong place (mirrored/rotated)
+        "touch_swap_xy": False,
+        "touch_invert_x": False,
+        "touch_invert_y": False,
     },
     "weather": {
         "zip": "11106",               # US zip code …

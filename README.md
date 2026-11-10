@@ -344,6 +344,14 @@ pip uninstall -y pygame && pip install pygame-ce
 
 Check it worked: `python3 -c "import pygame.font; pygame.font.init(); print('ok')"`.
 
+**Pi screen shows only console text; `journalctl -u dashboard` says `pygame.error: EGL not initialized`**
+
+That's SDL's `kmsdrm` driver failing to start OpenGL (seen on Debian trixie).
+The dashboard no longer uses it: on the Pi it draws straight to `/dev/fb0`
+and reads the touchscreen itself (`hardware/framebuffer.py`). Pull the latest
+code and re-run `bash deploy/install.sh` (the service file changed). To try
+`kmsdrm` anyway, add `Environment=SDL_VIDEODRIVER=kmsdrm` to the service.
+
 **Trains show "Can't reach the MTA · retrying"** — check your connection and
 the terminal output; the MTA feeds occasionally time out and recover on the
 next retry.

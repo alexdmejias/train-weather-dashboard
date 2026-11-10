@@ -19,10 +19,12 @@ fi
 
 echo "→ Installing packages"
 sudo apt-get update -qq
-sudo apt-get install -y python3-pygame python3-requests python3-protobuf python3-pip git \
+sudo apt-get install -y python3-pygame python3-requests python3-pip git \
   python3-smbus i2c-tools   # Button SHIM
-# MTA real-time feeds are protobuf; this is just the generated schema module
-sudo pip3 install --break-system-packages --no-deps gtfs-realtime-bindings
+# MTA real-time feeds are protobuf. The bindings are generated for a recent
+# protobuf runtime, newer than Debian's python3-protobuf, so both come from pip
+# (installed under /usr/local, which takes precedence over the apt copy).
+sudo pip3 install --break-system-packages --upgrade protobuf gtfs-realtime-bindings
 
 echo "→ Adding $USER_NAME to the video/render/input/i2c groups (display, touch, buttons)"
 sudo usermod -aG video,render,input,i2c "$USER_NAME"
@@ -31,7 +33,8 @@ echo "→ Installing systemd service"
 sed -e "s|__USER__|$USER_NAME|g" -e "s|__DIR__|$DIR|g" "$DIR/deploy/dashboard.service" \
   | sudo tee /etc/systemd/system/dashboard.service >/dev/null
 sudo systemctl daemon-reload
-sudo systemctl enable --now dashboard.service
+sudo systemctl enable dashboard.service
+sudo systemctl restart dashboard.service   # pick up new code/packages if it was already running
 
 if [ "$AUTO_UPDATE" = 1 ]; then
   echo "→ Installing auto-update timer (pulls the 'deploy' branch every 5 min)"

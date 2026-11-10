@@ -13,6 +13,10 @@
 # style = "classic"              # "classic", or cozy: "hearth", "almanac", "window"
 # season = "auto"                # cozy palettes: "auto" (by date), "autumn", "winter",
                                  # "spring" or "summer"
+# If taps land in the wrong place on the Pi touchscreen (mirrored or rotated):
+# touch_swap_xy = false
+# touch_invert_x = false
+# touch_invert_y = false
 
 [weather]
 # zip = "11106"                  # any US zip code

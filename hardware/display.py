@@ -22,8 +22,9 @@ import pygame
 
 
 class Presenter:
-    def __init__(self, screen: pygame.Surface, size=(800, 480), rotate="auto"):
+    def __init__(self, screen: pygame.Surface, size=(800, 480), rotate="auto", flip=None):
         self.screen = screen
+        self.flip = flip or pygame.display.flip  # framebuffer mode copies to /dev/fb0 instead
         self.canvas = pygame.Surface(size)
         sw, sh = screen.get_size()
         if rotate == "auto":
@@ -52,7 +53,7 @@ class Presenter:
                 img = pygame.transform.smoothscale(img, self.out_size)
             self.screen.fill((0, 0, 0))
             self.screen.blit(img, self.offset)
-        pygame.display.flip()
+        self.flip()
 
     def to_canvas(self, pos):
         """Map a point on the physical screen back to canvas coordinates (for touch)."""
