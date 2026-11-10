@@ -84,7 +84,8 @@ def test_settings_page_lists_every_choice():
     surf = pygame.Surface((theme.W, theme.H))
     layout.draw(surf, _state((2026, 11, 9, 18, 42), settings_open=True))
     keys = {(k, v) for _, k, v in layout.SETTINGS_HITS}
-    assert ("done", None) in keys and ("style", "window") in keys and ("try", "christmas") in keys
+    assert ("done", None) in keys and ("style", "window") in keys and ("season", "summer") in keys
+    assert all(r.h >= 44 for r, _, _ in layout.SETTINGS_HITS)       # finger-sized
     rects = [r for r, _, _ in layout.SETTINGS_HITS]
     assert all(surf.get_rect().contains(r) for r in rects)
     assert not any(a.colliderect(b) for i, a in enumerate(rects) for b in rects[i + 1:])

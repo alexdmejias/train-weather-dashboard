@@ -47,3 +47,22 @@ def test_every_look_renders():
                               style=style, season=season)
                 layout.draw(surf, state)
     theme.use("classic")
+
+
+def test_warming_prepares_other_looks_without_disturbing_the_screen():
+    now = datetime(2026, 11, 9, 18, 42).astimezone()
+    state = State(now=now, station="Steinway St", location="Astoria", departures=mock.trains(now, "normal"),
+                  weather=mock.weather(now, "normal"), style="hearth")
+    surf = pygame.Surface((theme.W, theme.H))
+    layout.draw(surf, state)
+    cards = list(layout.CARD_RECTS)
+    layout._warmed.clear()
+    rounds = 0
+    while layout.warm(state):
+        rounds += 1
+    assert rounds == len(theme.STYLES) - 1
+    assert state.style == "hearth" and not state.settings_open and theme.STYLE == "hearth"
+    assert layout.CARD_RECTS == cards
+    import scenery
+    assert all(("window" if s == "window" else s, "autumn") in scenery._cache for s in ("almanac", "window"))
+    theme.use("classic")

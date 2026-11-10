@@ -56,8 +56,10 @@ def kind(code: int, is_day: bool = True) -> str:
 
 
 def icon(code: int, is_day: bool, size: int) -> pygame.Surface:
-    key = (kind(code, is_day), size)
+    key = (kind(code, is_day), size, T.KEY)     # colours depend on the look
     if key not in _cache:
+        if len(_cache) > 400:
+            _cache.clear()
         _cache[key] = _render(key[0], size)
     return _cache[key]
 

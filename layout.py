@@ -32,9 +32,9 @@ def pages(state) -> list[str]:
 
 def draw(screen: pygame.Surface, state) -> None:
     style = getattr(state, "style", "classic")
-    if T.use(style, T.season_for(state.now, getattr(state, "season", "auto"))):
-        _cache.clear()          # colours are baked into cached surfaces
-        icons._cache.clear()
+    T.use(style, T.season_for(state.now, getattr(state, "season", "auto")))
+    if len(_cache) > 4000:      # many looks visited: start over rather than grow forever
+        _cache.clear()
     screen.blit(scenery.background(), (0, 0))
     CARD_RECTS.clear()
     if getattr(state, "settings_open", False):
@@ -59,6 +59,37 @@ def draw(screen: pygame.Surface, state) -> None:
     _page_tabs(screen, names, state.page % len(names), getattr(state, "page_progress", None))
     if getattr(state, "toast", None):
         _toast(screen, state.toast[0])
+
+
+_warmed: set = set()
+
+
+def warm(state) -> bool:
+    """Prepare one other look (its background, cards, text) off screen, so
+    switching to it from the settings page is instant. Returns True if it did
+    some work; call again until it returns False."""
+    season = T.season_for(state.now, getattr(state, "season", "auto"))
+    current = getattr(state, "style", "classic")
+    for style in T.STYLES:
+        if (style, season) in _warmed:
+            continue
+        _warmed.add((style, season))
+        if style == current:
+            continue
+        saved = (list(CARD_RECTS), list(SETTINGS_HITS), pygame.Rect(BANNER_RECT), state.settings_open)
+        scratch = pygame.Surface((T.W, T.H))
+        try:
+            state.style = style
+            for settings in (True, False):
+                state.settings_open = settings
+                draw(scratch, state)
+        finally:
+            state.style, state.settings_open = current, saved[3]
+            CARD_RECTS[:], SETTINGS_HITS[:] = saved[0], saved[1]
+            BANNER_RECT.update(saved[2])
+            T.use(current, season)
+        return True
+    return False
 
 
 def _toast(screen, msg):
@@ -693,19 +724,42 @@ def _badge(label, color, d, diamond=False):
 
 
 def _panel(w, h, radius, fill, border=None):
-    """Anti-aliased rounded rectangle (supersampled, cached)."""
+    """Anti-aliased rounded rectangle (cached).
+
+    Only the four corners are supersampled; the straight parts are plain
+    fills. Supersampling the whole card cost ~10× more, which made switching
+    looks noticeably slow on a Pi.
+    """
     key = ("panel", w, h, radius, fill, border)
     if key not in _cache:
-        k = 3
-        s = pygame.Surface((w * k, h * k), pygame.SRCALPHA)
-        rect = s.get_rect()
+        r = max(0, min(radius, w // 2, h // 2))
+        s = pygame.Surface((w, h), pygame.SRCALPHA)
+        s.fill(border or fill)
         if border:
-            pygame.draw.rect(s, border, rect, border_radius=radius * k)
-            rect = rect.inflate(-2 * k, -2 * k)
-            pygame.draw.rect(s, fill, rect, border_radius=max(0, radius - 1) * k)
+            s.fill(fill, (1, 1, w - 2, h - 2))
+        if r:
+            # punch out the corner squares, then paste in anti-aliased corners
+            corner = _corner(r, fill, border)
+            for flip_x, flip_y, x, y in ((0, 0, 0, 0), (1, 0, w - r, 0), (0, 1, 0, h - r), (1, 1, w - r, h - r)):
+                s.fill((0, 0, 0, 0), (x, y, r, r))
+                s.blit(pygame.transform.flip(corner, flip_x, flip_y), (x, y))
+        _cache[key] = s
+    return _cache[key]
+
+
+def _corner(r, fill, border):
+    """Top-left quarter of a rounded rectangle, supersampled."""
+    key = ("corner", r, fill, border)
+    if key not in _cache:
+        k = 4
+        s = pygame.Surface((r * k, r * k), pygame.SRCALPHA)
+        c = (r * k, r * k)
+        if border:
+            pygame.draw.circle(s, border, c, r * k)
+            pygame.draw.circle(s, fill, c, (r - 1) * k)
         else:
-            pygame.draw.rect(s, fill, rect, border_radius=radius * k)
-        _cache[key] = pygame.transform.smoothscale(s, (w, h))
+            pygame.draw.circle(s, fill, c, r * k)
+        _cache[key] = pygame.transform.smoothscale(s, (r, r))
     return _cache[key]
 
 
@@ -778,7 +832,7 @@ def _glow(d, color):
 # ── text helpers ──────────────────────────────────────────────────────────
 
 def _text(s, face, size, color):
-    key = ("t", s, face, size, color)
+    key = ("t", s, T.FACE_MAP.get(face, face), size, color)
     hit = _cache.get(key)
     if hit is None:
         hit = T.font(face, size).render(s, True, color)
@@ -809,7 +863,7 @@ def _tracked_fit(s, face, size, color, spacing, max_w):
 
 def _tracked(s, face, size, color, spacing):
     """Letter-spaced text (for small caps labels)."""
-    key = ("tr", s, face, size, color, spacing)
+    key = ("tr", s, T.FACE_MAP.get(face, face), size, color, spacing)
     if key not in _cache:
         glyphs = [T.font(face, size).render(ch, True, color) for ch in s]
         w = sum(g.get_width() for g in glyphs) + spacing * (len(glyphs) - 1)
@@ -850,7 +904,7 @@ def _ago(t: datetime, now: datetime) -> str:
 
 # ── settings page ─────────────────────────────────────────────────────────
 
-# (setting, label, [(value, option label), …]); "try_*" rows play an effect
+# (setting, label, [(value, option label), …])
 SETTINGS_ROWS = [
     ("style", "Look", [("classic", "Classic"), ("hearth", "Hearth"), ("almanac", "Almanac"), ("window", "Window")]),
     ("season", "Season", [("auto", "Auto"), ("autumn", "Autumn"), ("winter", "Winter"), ("spring", "Spring"),
@@ -858,11 +912,6 @@ SETTINGS_ROWS = [
     ("effects", "Effects", [("on", "On"), ("subtle", "Subtle"), ("off", "Off")]),
     ("clock", "Clock", [("12h", "12-hour"), ("24h", "24-hour")]),
     ("page_seconds", "Auto-advance", [(0, "Off"), (15, "15 s"), (30, "30 s"), (60, "1 min")]),
-    ("try", "Try weather", [("rain", "Rain"), ("snow", "Snow"), ("wind", "Wind"), ("thunder", "Storm"),
-                            ("fog", "Fog")]),
-    ("try", "Try season", [("leaves", "Leaves"), ("petals", "Petals"), ("fireflies", "Fireflies")]),
-    ("try", "Try holiday", [("christmas", "Christmas"), ("halloween", "Halloween"), ("fireworks", "Fireworks"),
-                            ("hearts", "Hearts"), ("confetti", "Confetti")]),
 ]
 
 
@@ -873,45 +922,49 @@ def setting_value(state, key):
 
 
 def _settings_page(screen, state):
+    """Big, finger-sized choices on a 5-column grid, one setting per row."""
     SETTINGS_HITS.clear()
     focus = getattr(state, "settings_focus", -1)
-
-    x, y = T.PAD + 2, 18
-    screen.blit(_text("Settings", "heading", 30, T.TEXT), (x, y))
-    screen.blit(_text("Changes save as you tap", "regular", 15, T.MUTED), (x + 2, y + 40))
+    size = 19
 
     def chip(r, label, selected, idx, primary=False):
-        fill = T.ACCENT if (selected or primary) else T.CARD_HI
-        ink = T.BG_BOTTOM if (selected or primary) else T.TEXT
+        on = selected or primary
+        fill = T.ACCENT if on else T.CARD_HI
+        ink = T.BG_BOTTOM if on else T.TEXT
         if idx == focus:
-            screen.blit(_panel(r.w + 6, r.h + 6, (r.h + 6) // 2, T.TEXT), (r.x - 3, r.y - 3))
-        screen.blit(_panel(r.w, r.h, r.h // 2, fill, None if (selected or primary) else T.CARD_BORDER), r)
-        t = _text(label, "semibold" if (selected or primary) else "medium", 15, ink)
+            screen.blit(_panel(r.w + 8, r.h + 8, (r.h + 8) // 2, T.TEXT), (r.x - 4, r.y - 4))
+        screen.blit(_panel(r.w, r.h, r.h // 2, fill, None if on else T.CARD_BORDER), r)
+        t = _text(label, "semibold" if on else "medium", size, ink)
         screen.blit(t, t.get_rect(center=r.center))
 
-    done = pygame.Rect(T.W - T.PAD - 96, 26, 96, 40)
+    x = T.PAD + 2
+    screen.blit(_text("Settings", "heading", 36, T.TEXT), (x, 14))
+    screen.blit(_text("Changes save as you tap", "regular", 16, T.MUTED), (x + 2, 58))
+    done = pygame.Rect(T.W - T.PAD - 124, 22, 124, 52)
     SETTINGS_HITS.append((done, "done", None))
     chip(done, "Done", False, 0, primary=True)
 
-    body = pygame.Rect(T.PAD, 92, T.W - 2 * T.PAD, T.H - 92 - T.PAD - 6)
+    body = pygame.Rect(T.PAD, 88, T.W - 2 * T.PAD, T.H - 88 - T.PAD - 4)
     _card(screen, body)
     CARD_RECTS.clear()          # no lights or snow on top of the settings
-    row_h = (body.h - 12) // len(SETTINGS_ROWS)
+    row_h = (body.h - 8) // len(SETTINGS_ROWS)
     lx = body.x + 22
-    ox = body.x + 160
+    ox, right = body.x + 176, body.right - 16
+    cols, gap = 5, 10
+    col_w = (right - ox - gap * (cols - 1)) // cols
+    chip_h = min(52, row_h - 16)
     for i, (key, label, options) in enumerate(SETTINGS_ROWS):
-        cy = body.y + 6 + i * row_h + row_h // 2
-        if i and key == "try" and SETTINGS_ROWS[i - 1][0] != "try":
-            pygame.draw.line(screen, T.DIVIDER, (lx, cy - row_h // 2), (body.right - 22, cy - row_h // 2), 1)
-        screen.blit(_text(label, "medium", 15, T.TEXT_SOFT if key != "try" else T.MUTED), (lx, cy - 10))
+        top = body.y + 4 + i * row_h
+        cy = top + row_h // 2
+        if i:
+            pygame.draw.line(screen, T.DIVIDER, (lx, top), (body.right - 22, top), 1)
+        t = _text(label, "heading", size + 1, T.TEXT)
+        screen.blit(t, (lx, cy - t.get_height() // 2))
         current = setting_value(state, key)
-        cx = ox
-        for value, olabel in options:
-            w = _text(olabel, "semibold", 15, T.TEXT).get_width() + 30
-            r = pygame.Rect(cx, cy - 16, w, 32)
+        for j, (value, olabel) in enumerate(options):
+            r = pygame.Rect(ox + j * (col_w + gap), cy - chip_h // 2, col_w, chip_h)
             SETTINGS_HITS.append((r, key, value))
-            chip(r, olabel, key != "try" and value == current, len(SETTINGS_HITS) - 1)
-            cx += w + 8
+            chip(r, olabel, value == current, len(SETTINGS_HITS) - 1)
 
-    hint = _text("Tap any corner of the screen 3 times to come back here", "regular", 12, T.FAINT)
-    screen.blit(hint, hint.get_rect(midtop=(T.W // 2, T.H - 22)))
+    hint = _text("Tap any corner 3 times to open settings", "regular", 13, T.FAINT)
+    screen.blit(hint, hint.get_rect(midtop=(T.W // 2, T.H - 20)))

@@ -88,8 +88,7 @@ and the date:
 `[effects] mode` is `"auto"` (on, except on a Pi Zero), `"on"`, `"subtle"`
 (fewer, calmer, no lightning) or `"off"`. They live in [`effects.py`](effects.py)
 (hot-reloaded). Preview any of them without waiting for the weather:
-`python3 tools/render.py --scenario normal --style hearth --effect christmas`,
-or from the settings page.
+`python3 tools/render.py --scenario normal --style hearth --effect christmas`.
 
 ## Settings page
 
@@ -98,8 +97,9 @@ Button SHIM button three times quickly) to open it:
 
 ![Settings](docs/effects/settings.png)
 
-Change the look, season, effects, clock and auto-advance, or tap **Try …** to
-play any effect for 20 seconds. Choices apply immediately and are saved to
+Change the look, season, effects, clock and auto-advance. Choices apply
+immediately (the other looks are prepared in the background shortly after
+start-up, so switching is instant) and are saved to
 `settings.json`, which takes priority over `config.toml` for those settings
 (delete it to go back). With a keyboard, knob or remote: next/previous move
 the highlight, Enter chooses, Esc closes. With the Button SHIM: A up, B down,
