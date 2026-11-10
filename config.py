@@ -55,7 +55,8 @@ DEFAULTS: dict = {
             "N": "Queens",            # N = northbound (Astoria-Ditmars, Forest Hills, Jamaica)
         },
         "routes": [],                 # only these lines, e.g. ["N", "W", "R"]; [] = all
-        "walk_minutes": 0,            # hide trains you can't catch: 5, or {"Steinway St" = 6, "Broadway" = 4}
+        "walk_minutes": 7,            # trains sooner than this can't be caught: 7, or {"Steinway St" = 6, "Broadway" = 4}
+        "too_soon": "small",          # those trains: "small" (one faded line per direction) or "hide"
         "title": None,                # departures card title; default: the station names
         "max_rows": 5,
         "refresh_seconds": 30,

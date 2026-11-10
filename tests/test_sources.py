@@ -191,3 +191,40 @@ def test_nws_alerts():
     assert got[0].body == "Minor flooding. Avoid roads."
     # severe weather outranks everything else
     assert alerts.ordered(got, now)[0].title == "Wind Warning"
+
+
+def test_too_soon_trains_split_off():
+    import os
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import layout
+    now = datetime.now().astimezone()
+    deps = mock.trains(now, "normal")
+    soon, ok = layout._partition(deps, now, 5)
+    assert soon and all(layout._minutes_until(d.depart_at, now) < 5 for d in soon)
+    assert ok and all(layout._minutes_until(d.depart_at, now) >= 5 for d in ok)
+    assert len(soon) + len(ok) == len(deps)
+    soon, ok = layout._partition(deps, now, {"Broadway": 5})   # per station
+    assert {d.station for d in soon} == {"Broadway"}
+    assert layout._upcoming(deps, now, 0) == sorted(deps, key=lambda d: d.depart_at)
+
+
+def test_tapping_a_train_finds_its_direction():
+    import os
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+    pygame.display.init()
+    pygame.font.init()
+    import layout
+    import theme
+    from dashboard import State
+    now = datetime.now().astimezone()
+    state = State(now=now, station="Test", direction_labels={"S": "Manhattan", "N": "Queens"},
+                  departures=mock.trains(now, "normal"), walk_minutes=5)
+    layout.draw(pygame.Surface((theme.W, theme.H)), state)
+    dirs = {d for _, d in layout.TRAIN_HITS}
+    assert dirs == {"S", "N"}
+    rect, d = layout.TRAIN_HITS[-1]
+    assert layout.train_at(rect.center) == d
+    assert layout.train_at((theme.W - 5, 5)) is None
+    state.detail = "S"   # the full list draws without errors
+    layout.draw(pygame.Surface((theme.W, theme.H)), state)

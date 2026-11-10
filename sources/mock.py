@@ -23,6 +23,15 @@ TO_CITY = [
     ("W", "Whitehall St-South Ferry", 6, BROADWAY, "S"),
     ("M", "Middle Village-Metropolitan Av", 8, STEINWAY, "S"),
     ("N", "Coney Island-Stillwell Av", 11, BROADWAY, "S"),
+    # further out — only on the tap-a-train list
+    ("R", "Bay Ridge-95 St", 13, STEINWAY, "S"),
+    ("W", "Whitehall St-South Ferry", 16, BROADWAY, "S"),
+    ("M", "Middle Village-Metropolitan Av", 18, STEINWAY, "S"),
+    ("N", "Coney Island-Stillwell Av", 21, BROADWAY, "S"),
+    ("R", "Bay Ridge-95 St", 23, STEINWAY, "S"),
+    ("W", "Whitehall St-South Ferry", 27, BROADWAY, "S"),
+    ("M", "Middle Village-Metropolitan Av", 29, STEINWAY, "S"),
+    ("N", "Coney Island-Stillwell Av", 32, BROADWAY, "S"),
 ]
 TO_QUEENS = [
     ("W", "Astoria-Ditmars Blvd", 3, BROADWAY, "N"),

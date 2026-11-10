@@ -35,9 +35,12 @@
 # Only show some lines ([] = every line at your stations):
 # routes = ["N", "W", "R"]
 
-# Hide trains you can't make — one number, or per station:
-# walk_minutes = 5
+# Trains leaving sooner than this can't be caught — one number, or per station
+# (0 = show everything):
+# walk_minutes = 7
 # walk_minutes = { "Steinway St" = 7, "Broadway" = 4 }
+# What to do with them: "small" = one faded line per direction, "hide" = leave them out
+# too_soon = "small"
 
 # title = "Morning commute"      # departures card title (default: the station names)
 # max_rows = 5                   # total rows across both directions

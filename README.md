@@ -15,6 +15,8 @@ Zero W and an 800×480 screen. Works with either:
 | ![](docs/screenshots/overview-night.png) | ![](docs/screenshots/forecast.png) |
 | **Service & weather alerts** | **Alert details** (tap the banner) |
 | ![](docs/screenshots/overview-alerts.png) | ![](docs/screenshots/alerts.png) |
+| **Too soon to catch** (faded) | **Every train one way** (tap a train) |
+| ![](docs/screenshots/overview-walk.png) | ![](docs/screenshots/direction.png) |
 
 ## Why it's built this way
 
@@ -60,8 +62,16 @@ its default. For example:
 ```toml
 [subway]
 directions = ["S"]                                     # Manhattan-bound only
-walk_minutes = { "Steinway St" = 7, "Broadway" = 4 }   # hide trains you can't catch
+walk_minutes = { "Steinway St" = 7, "Broadway" = 4 }   # trains you can't catch…
+too_soon = "hide"                                      # …left out ("small" = one faded line)
 ```
+
+By default trains leaving in under **7 minutes** are shown as one small faded
+line per direction (`too_soon = "small"`); set `walk_minutes = 0` to show
+everything normally.
+
+**Tap a train** to see every upcoming train in that direction; tap again (or
+press Space, or wait for the page timer) to go back.
 
 Stations can be names or ids. A name used by several stations
 ("Broadway") picks the one nearest your zip. To look one up:

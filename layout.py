@@ -20,6 +20,12 @@ from sources.trains import mta_subway
 
 _cache: dict = {}
 BANNER_RECT = pygame.Rect(0, 0, 0, 0)   # where the alert banner was drawn (for taps)
+TRAIN_HITS: list = []                   # [(Rect, direction)] for each departure row drawn (for taps)
+
+
+def train_at(pos) -> str | None:
+    """Direction ("N"/"S") of the departure row at ``pos``, if one was tapped."""
+    return next((d for r, d in TRAIN_HITS if d and r.collidepoint(pos)), None)
 
 
 def pages(state) -> list[str]:
@@ -29,6 +35,7 @@ def pages(state) -> list[str]:
 
 def draw(screen: pygame.Surface, state) -> None:
     screen.blit(_background(), (0, 0))
+    TRAIN_HITS.clear()
     _header(screen, state)
     top = 92
     body = pygame.Rect(T.PAD, top, T.W - 2 * T.PAD, T.H - top - T.PAD - 6)
@@ -38,6 +45,8 @@ def draw(screen: pygame.Surface, state) -> None:
         _forecast_page(screen, body, state)
     elif page == "alerts":
         _alerts_page(screen, body, state)
+    elif getattr(state, "detail", None):
+        _direction_page(screen, body, state, state.detail)
     else:
         split = 486
         _departures(screen, pygame.Rect(body.x, body.y, split - body.x, body.h), state)
@@ -213,27 +222,39 @@ def _departures(screen, r, state):
         screen.blit(t, t.get_rect(center=(r.centerx, top + (r.bottom - top) // 2 - 10)))
         return
 
-    deps = _upcoming(state.departures, state.now, state.walk_minutes)
+    soon, deps = _partition(state.departures, state.now, state.walk_minutes)
+    small = getattr(state, "too_soon", "hide") == "small"
     directions = state.directions or ["S", "N"]
     groups = [(d, [x for x in deps if x.direction == d]) for d in directions]
     if len(groups) == 1:  # one direction: no section headers, roomier rows
         groups[0] = (None, deps)
+    # "small" mode: the train you'd just miss, as a slim faded row on top of each group
+    missed = [([x for x in soon if x.direction == d or len(groups) == 1][-1:] if small else [])
+              for d, _ in groups]
 
     head_h = 28 if groups[0][0] else 0
     empty_h = 34
-    room = r.bottom - 8 - top - head_h * len(groups) - empty_h * sum(1 for _, g in groups if not g)
+    slim_h = 26
+    room = (r.bottom - 8 - top - head_h * len(groups) - slim_h * sum(map(len, missed))
+            - empty_h * sum(1 for _, g in groups if not g))
     row_h = 48 if head_h else 56
     counts = _allocate([len(g) for _, g in groups], min(state.max_rows, room // row_h))
 
     y = top
-    for (direction, trains), n in zip(groups, counts):
+    for (direction, trains), n, gone in zip(groups, counts, missed):
         if direction:
             label = state.direction_labels.get(direction, direction)
             t = _tracked(f"TO {label.upper()}", "bold", 11, T.TEXT_SOFT, 1.4)
             screen.blit(t, (ix, y + 8))
             lx = ix + t.get_width() + 10
             pygame.draw.line(screen, T.DIVIDER, (lx, y + 8 + t.get_height() // 2), (r.right - 20, y + 8 + t.get_height() // 2), 1)
+            TRAIN_HITS.append((pygame.Rect(r.x, y, r.w, head_h), direction))
             y += head_h
+        for d in gone:
+            row = pygame.Rect(r.x + 8, y, r.w - 16, slim_h - 2)
+            _slim_row(screen, row, d, state)
+            TRAIN_HITS.append((row, d.direction))
+            y += slim_h
         if not trains:
             t = _text("No upcoming trains", "regular", 15, T.FAINT)
             screen.blit(t, (ix, y + 6))
@@ -246,7 +267,62 @@ def _departures(screen, r, state):
             else:
                 pygame.draw.line(screen, T.DIVIDER, (r.x + 20, y - 2), (r.right - 20, y - 2), 1)
             _departure_row(screen, row, d, state, compact=bool(head_h))
+            TRAIN_HITS.append((row, d.direction))
             y += row_h
+
+
+def _slim_row(screen, row, d, state):
+    """A train that leaves too soon to catch: small, faded, no highlight."""
+    mins = max(0, _minutes_until(d.depart_at, state.now))
+    bd = 18
+    badge = _badge(d.line, T.hex_color(d.color), bd, diamond=d.express).copy()  # cached: don't fade the original
+    badge.set_alpha(120)
+    screen.blit(badge, (row.x + 20, row.centery - bd // 2))
+    right = _text(f"{mins} min · too soon", "medium", 13, T.FAINT)
+    rx = row.right - 14 - right.get_width()
+    screen.blit(right, (rx, row.centery - right.get_height() // 2))
+    tx = row.x + 20 + bd + 12
+    dest = _fit(d.destination, "regular", 14, T.FAINT, rx - 12 - tx)
+    screen.blit(dest, (tx, row.centery - dest.get_height() // 2))
+
+
+def _direction_page(screen, r, state, direction):
+    """Every upcoming train in one direction, opened by tapping a departure."""
+    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    ix = r.x + 22
+    label = state.direction_labels.get(direction, direction)
+    t = _tracked(f"TO {label.upper()}", "bold", 12, T.TEXT_SOFT, 1.6)
+    screen.blit(t, (ix, r.y + 18))
+    sub = _fit(state.station.upper(), "semibold", 12, T.MUTED, r.w // 2 - t.get_width())
+    screen.blit(sub, (ix + t.get_width() + 14, r.y + 18))
+    hint = _text("Tap to go back", "medium", 13, T.FAINT)
+    screen.blit(hint, (r.right - 22 - hint.get_width(), r.y + 18))
+
+    soon, ok = _partition(state.departures or [], state.now, state.walk_minutes)
+    trains = sorted([d for d in soon + ok if d.direction == direction], key=lambda d: d.depart_at)
+    too_soon = set(map(id, soon))
+    top = r.y + 46
+    if not trains:
+        t = _text("No upcoming trains", "medium", 17, T.MUTED)
+        screen.blit(t, t.get_rect(center=(r.centerx, top + (r.bottom - top) // 2 - 10)))
+        return
+
+    row_h = 48
+    per_col = max(1, (r.bottom - 8 - top) // row_h)
+    cols = 2 if len(trains) > per_col else 1
+    col_w = (r.w - 16 - T.GAP * (cols - 1)) // cols
+    first = next((i for i, d in enumerate(trains) if id(d) not in too_soon), None)
+    for i, d in enumerate(trains[:per_col * cols]):
+        c, k = divmod(i, per_col)
+        row = pygame.Rect(r.x + 8 + c * (col_w + T.GAP), top + k * row_h, col_w, row_h - 4)
+        if i == first:
+            screen.blit(_panel(row.w, row.h, 12, T.CARD_HI), row)
+        elif k:
+            pygame.draw.line(screen, T.DIVIDER, (row.x + 12, row.y - 2), (row.right - 12, row.y - 2), 1)
+        _departure_row(screen, row, d, state, compact=True, faded=id(d) in too_soon)
+    if cols == 2:
+        x = r.x + 8 + col_w + T.GAP // 2
+        pygame.draw.line(screen, T.DIVIDER, (x, top), (x, r.bottom - 12), 1)
 
 
 def _allocate(sizes, total):
@@ -262,7 +338,8 @@ def _allocate(sizes, total):
     return [first, rest] + [0] * (len(sizes) - 2)
 
 
-def _departure_row(screen, row, d, state, compact=False):
+def _departure_row(screen, row, d, state, compact=False, faded=False):
+    """``faded``: leaves too soon to catch (greyed, no strike-through)."""
     mins = _minutes_until(d.depart_at, state.now)
     dim = d.cancelled
     bd = 30 if compact else 34          # badge diameter
@@ -280,7 +357,7 @@ def _departure_row(screen, row, d, state, compact=False):
     # destination + detail line
     tx = row.x + 12 + bd + 14
     right_w = 92
-    dest = _fit(d.destination, "semibold", dest_size, T.FAINT if dim else T.TEXT, row.right - right_w - tx)
+    dest = _fit(d.destination, "semibold", dest_size, T.FAINT if dim or faded else T.TEXT, row.right - right_w - tx)
     screen.blit(dest, (tx, row.y + (3 if compact else 6)))
 
     parts = []
@@ -298,13 +375,19 @@ def _departure_row(screen, row, d, state, compact=False):
         when = _clock(d.depart_at, state.clock24)
         parts.append((f"Arrives {when}", T.MUTED))
 
+    if faded:
+        parts = [("Too soon to make", T.FAINT)] + [(txt, T.FAINT) for txt, _ in parts]
     x, y = tx, row.y + (24 if compact else 30)
+    limit = row.right - right_w
     for j, (txt, col) in enumerate(parts):
-        if j:
-            dot = _text("·", "regular", sub_size, T.FAINT)
-            screen.blit(dot, (x + 6, y))
-            x += 6 + dot.get_width() + 6
         t = _text(txt, "medium" if col != T.MUTED else "regular", sub_size, col)
+        dot = _text("·", "regular", sub_size, T.FAINT)
+        gap = 12 + dot.get_width() if j else 0
+        if x + gap + t.get_width() > limit:   # narrow row: drop what doesn't fit
+            break
+        if j:
+            screen.blit(dot, (x + 6, y))
+        x += gap
         screen.blit(t, (x, y))
         x += t.get_width()
 
@@ -315,7 +398,7 @@ def _departure_row(screen, row, d, state, compact=False):
         screen.blit(t, (rx - t.get_width(), row.centery - t.get_height() // 2))
     else:
         unit = _text("min", "medium", 14, T.FAINT if dim else T.MUTED)
-        num = _text(str(mins), "display-semibold", 28 if compact else 30, T.FAINT if dim else T.TEXT)
+        num = _text(str(mins), "display-semibold", 28 if compact else 30, T.FAINT if dim or faded else T.TEXT)
         ux = rx - unit.get_width()
         nx = ux - 5 - num.get_width()
         ny = row.centery - num.get_height() // 2
@@ -331,7 +414,12 @@ def _troubled_lines(state) -> set:
 
 
 def _upcoming(deps, now, walk_minutes=0):
-    """Trains you can still make, soonest first.
+    """Trains you can still make, soonest first."""
+    return _partition(deps, now, walk_minutes)[1]
+
+
+def _partition(deps, now, walk_minutes=0):
+    """(too soon to make, can still make) — each soonest first, departed trains dropped.
 
     ``walk_minutes`` is a number, or a {station name: minutes} table.
     """
@@ -340,8 +428,10 @@ def _upcoming(deps, now, walk_minutes=0):
             return walk_minutes.get(d.station, 0)
         return walk_minutes
 
-    keep = [d for d in deps if d.depart_at and _minutes_until(d.depart_at, now) >= walk(d)]
-    return sorted(keep, key=lambda d: d.depart_at)
+    live = sorted((d for d in deps if d.depart_at), key=lambda d: d.depart_at)
+    soon = [d for d in live if 0 <= _minutes_until(d.depart_at, now) < walk(d)]
+    keep = [d for d in live if _minutes_until(d.depart_at, now) >= walk(d)]
+    return soon, keep
 
 
 # ── weather card ──────────────────────────────────────────────────────────

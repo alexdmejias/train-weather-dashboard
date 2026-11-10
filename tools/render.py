@@ -30,7 +30,7 @@ import theme  # noqa: E402
 from dashboard import State  # noqa: E402
 from sources import mock  # noqa: E402
 
-# (scenario, page, time of day, file name)
+# (scenario, page, time of day, file name[, extra State fields])
 SHOTS = [
     ("normal", 0, (8, 42), "overview.png"),
     ("rain", 0, (8, 17), "overview-rain.png"),
@@ -40,10 +40,12 @@ SHOTS = [
     ("snow", 0, (7, 33), "overview-snow.png"),
     ("alerts", 0, (8, 17), "overview-alerts.png"),
     ("alerts", 2, (8, 17), "alerts.png"),
+    ("normal", 0, (8, 42), "overview-walk.png", {"walk_minutes": 5}),
+    ("normal", 0, (8, 42), "direction.png", {"walk_minutes": 5, "detail": "S"}),
 ]
 
 
-def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None):
+def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None, **extra):
     now = datetime.now().astimezone().replace(hour=hm[0], minute=hm[1], second=0, microsecond=0)
     state = State(
         now=now, station="Steinway St & Broadway", location="Astoria", multi_station=True,
@@ -51,6 +53,7 @@ def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None):
         departures=mock.trains(now, scenario), weather=mock.weather(now, scenario),
         subway_alerts=mock.subway_alerts(now, scenario), weather_alerts=mock.weather_alerts(now, scenario),
         updated={"trains": now - timedelta(seconds=20), "weather": now - timedelta(minutes=4)},
+        **extra,
     )
     state.page_progress = 0.4  # auto-advance countdown, part way through
     if toast:
@@ -84,8 +87,8 @@ def main():
         render(args.scenario, args.page, hm, out, args.scale, args.offline, args.toast)
     else:
         outdir = args.out or ROOT / "docs" / "screenshots"
-        for scenario, page, hm, name in SHOTS:
-            render(scenario, page, hm, outdir / name, args.scale)
+        for scenario, page, hm, name, *extra in SHOTS:
+            render(scenario, page, hm, outdir / name, args.scale, **(extra[0] if extra else {}))
 
 
 if __name__ == "__main__":
