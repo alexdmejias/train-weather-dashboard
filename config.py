@@ -49,16 +49,16 @@ DEFAULTS: dict = {
         # Station names or ids (python3 tools/find_station.py <name>). Names
         # that exist more than once ("Broadway") pick the one nearest the zip.
         "stations": ["Steinway St", "Broadway"],
-        "directions": ["S", "N"],     # sections, in display order; the first gets more rows
+        "directions": ["S", "N"],     # one column each, left to right
         "direction_labels": {         # section titles: "To Manhattan" / "To Queens"
             "S": "Manhattan",         # S = southbound platforms (Manhattan-bound from Astoria)
             "N": "Queens",            # N = northbound (Astoria-Ditmars, Forest Hills, Jamaica)
         },
         "routes": [],                 # only these lines, e.g. ["N", "W", "R"]; [] = all
         "walk_minutes": 7,            # trains sooner than this can't be caught: 7, or {"Steinway St" = 6, "Broadway" = 4}
-        "too_soon": "small",          # those trains: "small" (one faded line per direction) or "hide"
+        "too_soon": "small",          # those trains: "small" (the last one, faded, atop its column) or "hide"
         "title": None,                # departures card title; default: the station names
-        "max_rows": 5,
+        "max_rows": 5,                # trains per direction (fewer if they don't fit)
         "refresh_seconds": 30,
     },
     "buttons": {

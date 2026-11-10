@@ -11,8 +11,7 @@ reloaded automatically when they change, so you can tweak the design live.
 Space = next screen (screens also advance on their own every 30 s) ·
                1–5 = Button SHIM A–E · R = refresh data · Q/Esc = quit
                (all keys are configurable under [keys]; --show-keys prints names)
-Touch (Elecrow): tap = switch page · tap the alert banner = alert details ·
-               tap the trains = more trains in both directions (tap again = back)
+Touch (Elecrow): tap = switch page · tap the alert banner = alert details
 Button SHIM (HyperPixel): A departures · B forecast · C alerts · D refresh ·
                E sleep/wake (configurable in [buttons])
 Any key, button or tap restarts the 30 s timer.
@@ -84,7 +83,6 @@ class State:
     toast: tuple | None = None                    # (message, hide at monotonic time)
     asleep: bool = False                          # screen blanked
     page_progress: float | None = None            # 0–1 until the next auto-advance (None = off)
-    detail: bool = False                          # the bigger train list is open
 
     # convenience views used by the layout
     @property
@@ -333,13 +331,6 @@ def main():
             state.asleep = False
             set_backlight(True)
             return
-        if state.detail and action in ("next_page", "prev_page", "back"):
-            state.detail = False    # leaving the train list goes back to departures
-            return
-        if action == "back":
-            return
-        if action in ("overview", "forecast", "alerts", "next_page", "prev_page"):
-            state.detail = False
         if action in ("overview", "forecast", "alerts"):
             if action == "alerts" and "alerts" not in names:
                 state.toast = ("No alerts right now", time.monotonic() + 1.8)
@@ -391,23 +382,15 @@ def main():
                     pos = presenter.to_canvas((ev.x * screen.get_width(), ev.y * screen.get_height()))
                 else:
                     pos = presenter.to_canvas(ev.pos)
-                if state.detail:
-                    act("back")              # any tap closes the train list
-                elif layout.BANNER_RECT.collidepoint(pos) and "alerts" in layout.pages(state):
+                if layout.BANNER_RECT.collidepoint(pos) and "alerts" in layout.pages(state):
                     act("alerts")            # tap the alert banner → details
-                elif layout.TRAINS_RECT.collidepoint(pos) and layout.pages(state)[state.page] == "overview":
-                    act("overview")
-                    state.detail = True      # tap the trains → more trains, both directions
                 else:
                     act("next_page")
 
         # auto-advance: Departures → Forecast → (Alerts) → Departures …
         elapsed = time.monotonic() - page_started
         if page_seconds and not state.asleep and elapsed >= page_seconds:
-            if state.detail:                 # the train list times out back to departures
-                state.detail = False
-            else:
-                state.page = (state.page + 1) % len(layout.pages(state))
+            state.page = (state.page + 1) % len(layout.pages(state))
             page_started, elapsed = time.monotonic(), 0.0
         state.page_progress = min(1.0, elapsed / page_seconds) if page_seconds else None
         if state.toast and time.monotonic() > state.toast[1]:
@@ -424,7 +407,7 @@ def main():
         rotation = state.alert_index if (state.subway_alerts or state.weather_alerts) else 0
         # the countdown bar moves in 2-second steps — cheap enough for a Pi Zero
         tick = int(elapsed // 2) if page_seconds else 0
-        key = (state.version, now.strftime("%H:%M"), state.page, state.detail, rotation, state.toast,
+        key = (state.version, now.strftime("%H:%M"), state.page, rotation, state.toast,
                state.asleep, tick)
         if reloaded or key != drawn:
             state.now = now

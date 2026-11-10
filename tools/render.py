@@ -40,8 +40,6 @@ SHOTS = [
     ("snow", 0, (7, 33), "overview-snow.png"),
     ("alerts", 0, (8, 17), "overview-alerts.png"),
     ("alerts", 2, (8, 17), "alerts.png"),
-    ("normal", 0, (8, 42), "overview-walk.png", {"walk_minutes": 5}),
-    ("normal", 0, (8, 42), "trains.png", {"walk_minutes": 5, "detail": True}),
 ]
 
 
@@ -53,6 +51,7 @@ def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None, **
         departures=mock.trains(now, scenario), weather=mock.weather(now, scenario),
         subway_alerts=mock.subway_alerts(now, scenario), weather_alerts=mock.weather_alerts(now, scenario),
         updated={"trains": now - timedelta(seconds=20), "weather": now - timedelta(minutes=4)},
+        walk_minutes=5,   # mock trains are bunched up close; 5 shows a "too soon" one per direction
         **extra,
     )
     state.page_progress = 0.4  # auto-advance countdown, part way through
