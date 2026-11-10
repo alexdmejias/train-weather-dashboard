@@ -20,12 +20,7 @@ from sources.trains import mta_subway
 
 _cache: dict = {}
 BANNER_RECT = pygame.Rect(0, 0, 0, 0)   # where the alert banner was drawn (for taps)
-TRAIN_HITS: list = []                   # [(Rect, direction)] for each departure row drawn (for taps)
-
-
-def train_at(pos) -> str | None:
-    """Direction ("N"/"S") of the departure row at ``pos``, if one was tapped."""
-    return next((d for r, d in TRAIN_HITS if d and r.collidepoint(pos)), None)
+TRAINS_RECT = pygame.Rect(0, 0, 0, 0)   # where the departures card was drawn (for taps)
 
 
 def pages(state) -> list[str]:
@@ -35,7 +30,7 @@ def pages(state) -> list[str]:
 
 def draw(screen: pygame.Surface, state) -> None:
     screen.blit(_background(), (0, 0))
-    TRAIN_HITS.clear()
+    TRAINS_RECT.update(0, 0, 0, 0)
     _header(screen, state)
     top = 92
     body = pygame.Rect(T.PAD, top, T.W - 2 * T.PAD, T.H - top - T.PAD - 6)
@@ -46,7 +41,7 @@ def draw(screen: pygame.Surface, state) -> None:
     elif page == "alerts":
         _alerts_page(screen, body, state)
     elif getattr(state, "detail", None):
-        _direction_page(screen, body, state, state.detail)
+        _trains_page(screen, body, state)
     else:
         split = 486
         _departures(screen, pygame.Rect(body.x, body.y, split - body.x, body.h), state)
@@ -210,6 +205,7 @@ def _insight(state):
 # ── departures card ───────────────────────────────────────────────────────
 
 def _departures(screen, r, state):
+    TRAINS_RECT.update(r)
     screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
     ix = r.x + 20
     screen.blit(_tracked_fit(state.station.upper(), "semibold", 12, T.MUTED, 1.6, r.w - 140), (ix, r.y + 18))
@@ -248,12 +244,10 @@ def _departures(screen, r, state):
             screen.blit(t, (ix, y + 8))
             lx = ix + t.get_width() + 10
             pygame.draw.line(screen, T.DIVIDER, (lx, y + 8 + t.get_height() // 2), (r.right - 20, y + 8 + t.get_height() // 2), 1)
-            TRAIN_HITS.append((pygame.Rect(r.x, y, r.w, head_h), direction))
             y += head_h
         for d in gone:
             row = pygame.Rect(r.x + 8, y, r.w - 16, slim_h - 2)
             _slim_row(screen, row, d, state)
-            TRAIN_HITS.append((row, d.direction))
             y += slim_h
         if not trains:
             t = _text("No upcoming trains", "regular", 15, T.FAINT)
@@ -267,7 +261,6 @@ def _departures(screen, r, state):
             else:
                 pygame.draw.line(screen, T.DIVIDER, (r.x + 20, y - 2), (r.right - 20, y - 2), 1)
             _departure_row(screen, row, d, state, compact=bool(head_h))
-            TRAIN_HITS.append((row, d.direction))
             y += row_h
 
 
@@ -286,43 +279,50 @@ def _slim_row(screen, row, d, state):
     screen.blit(dest, (tx, row.centery - dest.get_height() // 2))
 
 
-def _direction_page(screen, r, state, direction):
-    """Every upcoming train in one direction, opened by tapping a departure."""
+def _trains_page(screen, r, state):
+    """More upcoming trains, one column per direction — opened by tapping the departures."""
     screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
     ix = r.x + 22
-    label = state.direction_labels.get(direction, direction)
-    t = _tracked(f"TO {label.upper()}", "bold", 12, T.TEXT_SOFT, 1.6)
-    screen.blit(t, (ix, r.y + 18))
-    sub = _fit(state.station.upper(), "semibold", 12, T.MUTED, r.w // 2 - t.get_width())
-    screen.blit(sub, (ix + t.get_width() + 14, r.y + 18))
     hint = _text("Tap to go back", "medium", 13, T.FAINT)
     screen.blit(hint, (r.right - 22 - hint.get_width(), r.y + 18))
+    screen.blit(_tracked_fit(state.station.upper(), "semibold", 12, T.MUTED, 1.6,
+                             r.w - 66 - hint.get_width()), (ix, r.y + 18))
 
     soon, ok = _partition(state.departures or [], state.now, state.walk_minutes)
-    trains = sorted([d for d in soon + ok if d.direction == direction], key=lambda d: d.depart_at)
     too_soon = set(map(id, soon))
+    everything = sorted(soon + ok, key=lambda d: d.depart_at)
+    directions = state.directions or ["S", "N"]
+    cols = len(directions)
     top = r.y + 46
-    if not trains:
-        t = _text("No upcoming trains", "medium", 17, T.MUTED)
-        screen.blit(t, t.get_rect(center=(r.centerx, top + (r.bottom - top) // 2 - 10)))
-        return
-
-    row_h = 48
-    per_col = max(1, (r.bottom - 8 - top) // row_h)
-    cols = 2 if len(trains) > per_col else 1
+    head_h, row_h = 28, 48
+    per_col = max(1, (r.bottom - 8 - top - head_h) // row_h)
     col_w = (r.w - 16 - T.GAP * (cols - 1)) // cols
-    first = next((i for i, d in enumerate(trains) if id(d) not in too_soon), None)
-    for i, d in enumerate(trains[:per_col * cols]):
-        c, k = divmod(i, per_col)
-        row = pygame.Rect(r.x + 8 + c * (col_w + T.GAP), top + k * row_h, col_w, row_h - 4)
-        if i == first:
-            screen.blit(_panel(row.w, row.h, 12, T.CARD_HI), row)
-        elif k:
-            pygame.draw.line(screen, T.DIVIDER, (row.x + 12, row.y - 2), (row.right - 12, row.y - 2), 1)
-        _departure_row(screen, row, d, state, compact=True, faded=id(d) in too_soon)
-    if cols == 2:
-        x = r.x + 8 + col_w + T.GAP // 2
-        pygame.draw.line(screen, T.DIVIDER, (x, top), (x, r.bottom - 12), 1)
+
+    for c, direction in enumerate(directions):
+        x = r.x + 8 + c * (col_w + T.GAP)
+        label = state.direction_labels.get(direction, direction)
+        t = _tracked(f"TO {label.upper()}", "bold", 11, T.TEXT_SOFT, 1.4)
+        ty = top + 8 + t.get_height() // 2
+        screen.blit(t, (x + 12, top + 8))
+        pygame.draw.line(screen, T.DIVIDER, (x + 22 + t.get_width(), ty), (x + col_w - 12, ty), 1)
+        if c:
+            lx = x - T.GAP // 2
+            pygame.draw.line(screen, T.DIVIDER, (lx, top + 4), (lx, r.bottom - 12), 1)
+
+        trains = [d for d in everything if d.direction == direction][:per_col]
+        y = top + head_h
+        if not trains:
+            screen.blit(_text("No upcoming trains", "regular", 15, T.FAINT), (x + 12, y + 6))
+            continue
+        first = next((i for i, d in enumerate(trains) if id(d) not in too_soon), None)
+        for i, d in enumerate(trains):
+            row = pygame.Rect(x, y, col_w, row_h - 4)
+            if i == first:
+                screen.blit(_panel(row.w, row.h, 12, T.CARD_HI), row)
+            elif i:
+                pygame.draw.line(screen, T.DIVIDER, (row.x + 12, row.y - 2), (row.right - 12, row.y - 2), 1)
+            _departure_row(screen, row, d, state, compact=True, faded=id(d) in too_soon)
+            y += row_h
 
 
 def _allocate(sizes, total):

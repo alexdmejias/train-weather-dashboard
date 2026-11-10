@@ -12,7 +12,7 @@ Space = next screen (screens also advance on their own every 30 s) ·
                1–5 = Button SHIM A–E · R = refresh data · Q/Esc = quit
                (all keys are configurable under [keys]; --show-keys prints names)
 Touch (Elecrow): tap = switch page · tap the alert banner = alert details ·
-               tap a train = every upcoming train that way (tap again = back)
+               tap the trains = more trains in both directions (tap again = back)
 Button SHIM (HyperPixel): A departures · B forecast · C alerts · D refresh ·
                E sleep/wake (configurable in [buttons])
 Any key, button or tap restarts the 30 s timer.
@@ -84,7 +84,7 @@ class State:
     toast: tuple | None = None                    # (message, hide at monotonic time)
     asleep: bool = False                          # screen blanked
     page_progress: float | None = None            # 0–1 until the next auto-advance (None = off)
-    detail: str | None = None                     # direction whose full train list is open
+    detail: bool = False                          # the bigger train list is open
 
     # convenience views used by the layout
     @property
@@ -334,12 +334,12 @@ def main():
             set_backlight(True)
             return
         if state.detail and action in ("next_page", "prev_page", "back"):
-            state.detail = None     # leaving the train list goes back to departures
+            state.detail = False    # leaving the train list goes back to departures
             return
         if action == "back":
             return
         if action in ("overview", "forecast", "alerts", "next_page", "prev_page"):
-            state.detail = None
+            state.detail = False
         if action in ("overview", "forecast", "alerts"):
             if action == "alerts" and "alerts" not in names:
                 state.toast = ("No alerts right now", time.monotonic() + 1.8)
@@ -391,14 +391,13 @@ def main():
                     pos = presenter.to_canvas((ev.x * screen.get_width(), ev.y * screen.get_height()))
                 else:
                     pos = presenter.to_canvas(ev.pos)
-                tapped = layout.train_at(pos)
                 if state.detail:
                     act("back")              # any tap closes the train list
                 elif layout.BANNER_RECT.collidepoint(pos) and "alerts" in layout.pages(state):
                     act("alerts")            # tap the alert banner → details
-                elif tapped and layout.pages(state)[state.page] == "overview":
+                elif layout.TRAINS_RECT.collidepoint(pos) and layout.pages(state)[state.page] == "overview":
                     act("overview")
-                    state.detail = tapped    # tap a train → every upcoming train that way
+                    state.detail = True      # tap the trains → more trains, both directions
                 else:
                     act("next_page")
 
@@ -406,7 +405,7 @@ def main():
         elapsed = time.monotonic() - page_started
         if page_seconds and not state.asleep and elapsed >= page_seconds:
             if state.detail:                 # the train list times out back to departures
-                state.detail = None
+                state.detail = False
             else:
                 state.page = (state.page + 1) % len(layout.pages(state))
             page_started, elapsed = time.monotonic(), 0.0

@@ -41,7 +41,7 @@ SHOTS = [
     ("alerts", 0, (8, 17), "overview-alerts.png"),
     ("alerts", 2, (8, 17), "alerts.png"),
     ("normal", 0, (8, 42), "overview-walk.png", {"walk_minutes": 5}),
-    ("normal", 0, (8, 42), "direction.png", {"walk_minutes": 5, "detail": "S"}),
+    ("normal", 0, (8, 42), "trains.png", {"walk_minutes": 5, "detail": True}),
 ]
 
 

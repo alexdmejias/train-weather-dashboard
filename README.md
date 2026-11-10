@@ -15,8 +15,8 @@ Zero W and an 800×480 screen. Works with either:
 | ![](docs/screenshots/overview-night.png) | ![](docs/screenshots/forecast.png) |
 | **Service & weather alerts** | **Alert details** (tap the banner) |
 | ![](docs/screenshots/overview-alerts.png) | ![](docs/screenshots/alerts.png) |
-| **Too soon to catch** (faded) | **Every train one way** (tap a train) |
-| ![](docs/screenshots/overview-walk.png) | ![](docs/screenshots/direction.png) |
+| **Too soon to catch** (faded) | **More trains** (tap the departures) |
+| ![](docs/screenshots/overview-walk.png) | ![](docs/screenshots/trains.png) |
 
 ## Why it's built this way
 
@@ -70,7 +70,7 @@ By default trains leaving in under **7 minutes** are shown as one small faded
 line per direction (`too_soon = "small"`); set `walk_minutes = 0` to show
 everything normally.
 
-**Tap a train** to see every upcoming train in that direction; tap again (or
+**Tap the departures** for a bigger list — one column per direction; tap again (or
 press Space, or wait for the page timer) to go back.
 
 Stations can be names or ids. A name used by several stations

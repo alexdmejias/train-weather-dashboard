@@ -208,7 +208,7 @@ def test_too_soon_trains_split_off():
     assert layout._upcoming(deps, now, 0) == sorted(deps, key=lambda d: d.depart_at)
 
 
-def test_tapping_a_train_finds_its_direction():
+def test_tapping_the_trains_opens_the_bigger_list():
     import os
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     import pygame
@@ -221,10 +221,9 @@ def test_tapping_a_train_finds_its_direction():
     state = State(now=now, station="Test", direction_labels={"S": "Manhattan", "N": "Queens"},
                   departures=mock.trains(now, "normal"), walk_minutes=5)
     layout.draw(pygame.Surface((theme.W, theme.H)), state)
-    dirs = {d for _, d in layout.TRAIN_HITS}
-    assert dirs == {"S", "N"}
-    rect, d = layout.TRAIN_HITS[-1]
-    assert layout.train_at(rect.center) == d
-    assert layout.train_at((theme.W - 5, 5)) is None
-    state.detail = "S"   # the full list draws without errors
+    assert layout.TRAINS_RECT.collidepoint(layout.TRAINS_RECT.center)
+    assert not layout.TRAINS_RECT.collidepoint((theme.W - 5, 5))
+    state.detail = True   # the bigger list draws without errors
+    layout.draw(pygame.Surface((theme.W, theme.H)), state)
+    state.directions = ["S"]
     layout.draw(pygame.Surface((theme.W, theme.H)), state)
