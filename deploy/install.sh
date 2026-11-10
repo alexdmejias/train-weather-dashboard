@@ -33,7 +33,8 @@ echo "→ Installing systemd service"
 sed -e "s|__USER__|$USER_NAME|g" -e "s|__DIR__|$DIR|g" "$DIR/deploy/dashboard.service" \
   | sudo tee /etc/systemd/system/dashboard.service >/dev/null
 sudo systemctl daemon-reload
-sudo systemctl enable --now dashboard.service
+sudo systemctl enable dashboard.service
+sudo systemctl restart dashboard.service   # pick up new code/packages if it was already running
 
 if [ "$AUTO_UPDATE" = 1 ]; then
   echo "→ Installing auto-update timer (pulls the 'deploy' branch every 5 min)"
