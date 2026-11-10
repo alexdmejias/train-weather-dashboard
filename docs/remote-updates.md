@@ -89,9 +89,30 @@ deploy/install.sh --auto-update installs git + the timer
   changed, `update.sh` re-runs `install.sh` (apt and pip) before restarting.
 - **Self-update safety:** `update.sh` wraps everything in `main()`, so bash
   has parsed the whole file before `git reset` overwrites it.
-- **Permissions:** the timer runs as the Pi user. Restarting uses
-  `sudo systemctl`, which Raspberry Pi OS allows without a password for the
-  Imager-created user (`sync.sh` already relies on this).
+- **Permissions:** the timer runs as the Pi user with no terminal, so
+  `sudo` must work **without a password**. Raspberry Pi OS sets this up for
+  its default user, but not always for users you create yourself, or when
+  Imager is told to require a password. Check with `sudo -k; sudo -n true && echo ok`.
+  If it isn't set up, choose one:
+
+  ```bash
+  # Full (same as the default Pi user). Needed for updates that change
+  # requirements.txt, install.sh or a unit file, since those re-run install.sh.
+  echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/010_$USER-nopasswd
+  sudo chmod 440 /etc/sudoers.d/010_$USER-nopasswd
+
+  # Narrow: only lets the updater restart the dashboard. Updates that need
+  # install.sh wait (and log why) until you run it by hand.
+  echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart dashboard" \
+    | sudo tee /etc/sudoers.d/020_dashboard-restart
+  sudo chmod 440 /etc/sudoers.d/020_dashboard-restart
+  ```
+
+  `update.sh` checks this **before** checking out a new commit. If sudo would
+  prompt, it leaves the old commit in place and logs why, then tries again on
+  the next tick. `install.sh --auto-update` warns at the end if it's missing.
+  A restart that fails, or that leaves the same PID running, counts as a
+  failed health check, so the update is rolled back.
 - The workflow only needs `contents: write` (to move `deploy`). No secrets.
 - **Is the screen up to date?** The bottom-left corner shows the running
   build (`Build 214` = the number of commits, so it only goes up) with a dot:
@@ -104,7 +125,7 @@ deploy/install.sh --auto-update installs git + the timer
 ### Switching an existing Pi over
 
 The README's setup copies files with `rsync --exclude .git`, so the Pi has no
-repo. Make it a clone once (your `config.toml` is kept):
+repo. Make it a clone once (your `config.toml` and `settings.json` are kept):
 
 ```bash
 ssh pi@dashboard.local
@@ -112,13 +133,16 @@ ssh pi@dashboard.local
 
 ```bash
 cd ~ && git clone -b deploy https://github.com/alexdmejias/train-weather-dashboard.git twd-new \
-  && cp train-weather-dashboard/config.toml twd-new/ 2>/dev/null; \
+  && cp train-weather-dashboard/{config.toml,settings.json} twd-new/ 2>/dev/null; \
   mv train-weather-dashboard train-weather-dashboard.old && mv twd-new train-weather-dashboard
 ```
 
 ```bash
 cd ~/train-weather-dashboard && bash deploy/install.sh --auto-update
 ```
+
+If it ends with a ⚠ about passwordless sudo, follow the **Permissions** note
+above, or updates will download but never restart the dashboard.
 
 The `deploy` branch exists after the first green CI run on the default branch.
 
