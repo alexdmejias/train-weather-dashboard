@@ -87,6 +87,8 @@ deploy/install.sh --auto-update installs git + the timer
   retried every 5 min. The next new commit on `deploy` is tried normally.
 - **Dependencies:** if `requirements.txt`, `install.sh` or a unit file
   changed, `update.sh` re-runs `install.sh` (apt and pip) before restarting.
+  If that fails (usually the network), it goes back to the previous commit
+  and tries the whole update again on the next run.
 - **Self-update safety:** `update.sh` wraps everything in `main()`, so bash
   has parsed the whole file before `git reset` overwrites it.
 - **Permissions:** the timer runs as the Pi user. Restarting uses

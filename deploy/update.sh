@@ -31,7 +31,15 @@ main() {
 
   if echo "$changed" | grep -qE '^(requirements\.txt|deploy/(install\.sh|.*\.service|.*\.timer))$'; then
     echo "dependencies or units changed → re-running install.sh"
-    bash deploy/install.sh --auto-update
+    if ! bash deploy/install.sh --auto-update; then
+      # Don't leave the new code checked out on top of the old packages: the
+      # next run would see nothing new and never retry. Usually the network,
+      # not the commit, so it isn't marked bad — the next run tries again.
+      echo "✗ install.sh failed — back to ${old::7}, will retry" >&2
+      git reset --hard --quiet "$old"
+      restart_and_check || echo "✗ ${old::7} is unhealthy too — check journalctl -u $SERVICE" >&2
+      exit 1
+    fi
   fi
 
   if restart_and_check; then
