@@ -66,7 +66,7 @@ DEFAULTS: dict = {
         "enabled": True,
         "i2c_bus": "auto",            # or a number, e.g. 3 — see README for HyperPixel wiring
         "led_brightness": 0.15,       # status LED: green ok · amber line trouble · red severe/offline
-        # What each button does: overview, forecast, alerts, next_page,
+        # What each button does: overview, forecast, alerts, system, next_page,
         # prev_page, next_alert, refresh, sleep
         "a": "overview",
         "b": "forecast",
@@ -78,7 +78,7 @@ DEFAULTS: dict = {
     # names, lower-case without spaces ("space", "right", "audionext",
     # "volumeup", "f13"), optionally with modifiers: "ctrl+c", "ctrl+shift+1".
     # Unmapped keys are printed to the log so you can find their names.
-    # Actions: next_page, prev_page, overview, forecast, alerts, next_alert,
+    # Actions: next_page, prev_page, overview, forecast, alerts, system, next_alert,
     # refresh, sleep, quit, button_a … button_e (act like Button SHIM A–E),
     # or "" to ignore a key.
     "keys": {
@@ -103,6 +103,7 @@ DEFAULTS: dict = {
         "3": "button_c",
         "4": "button_d",
         "5": "button_e",
+        "v": "system",                # build number + update status
     },
     "alerts": {
         "subway": True,               # MTA delays, suspensions and planned work on your lines

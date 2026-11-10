@@ -23,8 +23,9 @@ BANNER_RECT = pygame.Rect(0, 0, 0, 0)   # where the alert banner was drawn (for 
 
 
 def pages(state) -> list[str]:
-    """Pages the user can tap through. The alerts page only exists when needed."""
-    return ["overview", "forecast"] + (["alerts"] if _alerts(state) else [])
+    """Pages the user can tap through. The alerts page only exists when needed;
+    System is last and skipped by the auto-advance."""
+    return ["overview", "forecast"] + (["alerts"] if _alerts(state) else []) + ["system"]
 
 
 def draw(screen: pygame.Surface, state) -> None:
@@ -38,9 +39,12 @@ def draw(screen: pygame.Surface, state) -> None:
         _forecast_page(screen, body, state)
     elif page == "alerts":
         _alerts_page(screen, body, state)
+    elif page == "system":
+        _system_page(screen, body, state)
     else:
         _departures(screen, body, state)
     _page_tabs(screen, names, state.page % len(names), getattr(state, "page_progress", None))
+    _build_tag(screen, state)
     if getattr(state, "toast", None):
         _toast(screen, state.toast[0])
 
@@ -464,6 +468,85 @@ def _uv(uv) -> str:
     return f"{uv:.0f} · {level}"
 
 
+# ── system page ───────────────────────────────────────────────────────────
+
+UPDATE_COLORS = {"latest": "GOOD", "pending": "ACCENT", "failed": "WARN"}
+
+
+def _update_color(update):
+    return getattr(T, UPDATE_COLORS.get(getattr(update, "state", ""), "FAINT"))
+
+
+def _build_tag(screen, state):
+    """Bottom-left: which build is running, with a dot that's green when it's the latest."""
+    build = getattr(state, "build", None)
+    if not build:
+        return
+    t = _text(build.label, "medium", 12, T.FAINT)
+    x, y = T.PAD + 12, T.H - 22
+    pygame.draw.circle(screen, _update_color(getattr(state, "update", None)), (T.PAD + 4, y + t.get_height() // 2), 3)
+    screen.blit(t, (x, y))
+
+
+def _system_page(screen, r, state):
+    screen.blit(_panel(r.w, r.h, T.RADIUS, T.CARD, T.CARD_BORDER), r)
+    ix = r.x + 22
+    screen.blit(_tracked("SYSTEM", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
+    build, update = getattr(state, "build", None), getattr(state, "update", None)
+
+    # hero: is this the latest version?
+    color = _update_color(update)
+    cy = r.y + 78
+    screen.blit(_glow(56, color), (ix - 14, cy - 28 - 14))
+    pygame.draw.circle(screen, color, (ix + 14, cy), 14)
+    if getattr(update, "state", "") == "latest":     # check mark
+        pygame.draw.lines(screen, T.CARD, False, [(ix + 7, cy), (ix + 12, cy + 5), (ix + 21, cy - 5)], 3)
+    else:
+        pygame.draw.circle(screen, T.CARD, (ix + 14, cy), 5)
+    msg = update.message if update else "Version unknown"
+    screen.blit(_fit(msg, "semibold", 24, T.TEXT, r.w - 100), (ix + 44, cy - 24))
+    if build:
+        sub = f"{build.label} · {build.short}"
+        if build.date:
+            sub += f" · built {_when(build.date, state)}"
+    else:
+        sub = "Not a git clone — copied with sync.sh?"
+    screen.blit(_fit(sub, "regular", 15, T.MUTED, r.w - 100), (ix + 44, cy + 6))
+
+    # details
+    def feed(name):
+        updated, error = state.updated.get(name), state.errors.get(name)
+        if error:
+            return f"Offline · {_ago(updated, state.now)}" if updated else "Offline"
+        return f"Live · {_ago(updated, state.now)}" if updated else "Connecting"
+
+    checked = getattr(update, "checked", None)
+    started = getattr(state, "started", None)
+    stats = [
+        ("CHANGE", build.subject if build and build.subject else "–"),
+        ("LAST UPDATE CHECK", _ago(checked, state.now) if checked else "–"),
+        ("RUNNING SINCE", f"{_when(started, state)}" if started else "–"),
+        ("TRAINS", feed("trains")),
+        ("WEATHER", feed("weather")),
+        ("NETWORK", getattr(state, "ip", None) or "Offline"),
+    ]
+    gy = r.y + 130
+    pygame.draw.line(screen, T.DIVIDER, (ix, gy - 12), (r.right - 22, gy - 12), 1)
+    cell_w = (r.w - 44) // 3
+    for i, (label, value) in enumerate(stats):
+        if i == 0:                      # the commit message gets the whole first row
+            x, y, w = ix, gy, r.w - 44
+        else:
+            row, col = divmod(i - 1, 3)
+            x, y, w = ix + col * cell_w, gy + (row + 1) * 56, cell_w - 12
+        screen.blit(_tracked(label, "semibold", 10, T.FAINT, 1.2), (x, y))
+        screen.blit(_fit(value, "semibold", 17, T.TEXT_SOFT, w), (x, y + 15))
+
+    hint = "Updates are checked every 5 min · press Space to go back"
+    t = _text(hint, "regular", 13, T.FAINT)
+    screen.blit(t, (ix, r.bottom - 18 - t.get_height()))
+
+
 # ── alerts page ───────────────────────────────────────────────────────────
 
 def _alerts_page(screen, r, state):
@@ -619,7 +702,7 @@ def _status(screen, right, y, updated, error, now, compact=False):
     pygame.draw.circle(screen, color, (right - t.get_width() - 10, y + t.get_height() // 2 - 1), 4)
 
 
-TAB_LABELS = {"overview": "Departures", "forecast": "Forecast", "alerts": "Alerts"}
+TAB_LABELS = {"overview": "Departures", "forecast": "Forecast", "alerts": "Alerts", "system": "System"}
 
 
 def _page_tabs(screen, names, current, progress):

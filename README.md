@@ -15,6 +15,8 @@ Zero W and an 800×480 screen. Works with either:
 | ![](docs/screenshots/overview-night.png) | ![](docs/screenshots/forecast.png) |
 | **Service & weather alerts** | **Alert details** (tap the banner) |
 | ![](docs/screenshots/overview-alerts.png) | ![](docs/screenshots/alerts.png) |
+| **System** (build + update status) | |
+| ![](docs/screenshots/system.png) | |
 
 ## Why it's built this way
 

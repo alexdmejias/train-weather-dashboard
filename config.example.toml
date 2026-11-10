@@ -51,7 +51,7 @@
 # enabled = true
 # i2c_bus = "auto"               # or a bus number, e.g. 3
 # led_brightness = 0.15          # status LED: green ok · amber trouble · blue planned · red severe/offline
-# Actions: overview, forecast, alerts, next_page, prev_page, next_alert, refresh, sleep
+# Actions: overview, forecast, alerts, system, next_page, prev_page, next_alert, refresh, sleep
 # a = "overview"
 # b = "forecast"
 # c = "alerts"
@@ -69,7 +69,7 @@
 # you want to change; the rest keep their defaults (see config.py).
 # Find a key's name: run  python3 dashboard.py --show-keys  and press it
 # (on the Pi: journalctl -u dashboard -f, unmapped keys are logged).
-# Actions: next_page, prev_page, overview, forecast, alerts, next_alert,
+# Actions: next_page, prev_page, overview, forecast, alerts, system, next_alert,
 #          refresh, sleep, quit, button_a … button_e, or "" to ignore.
 # space = "next_page"
 # volumeup = "next_page"         # knob turned right

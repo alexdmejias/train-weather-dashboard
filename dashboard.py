@@ -12,6 +12,8 @@ Space = next screen (screens also advance on their own every 30 s) ·
                1–5 = Button SHIM A–E · R = refresh data · Q/Esc = quit
                (all keys are configurable under [keys]; --show-keys prints names)
 Touch (Elecrow): tap = switch page · tap the alert banner = alert details
+The System page (build number, update status) is skipped by the auto-advance;
+               tap or press Space to reach it, or press V.
 Button SHIM (HyperPixel): A departures · B forecast · C alerts · D refresh ·
                E sleep/wake (configurable in [buttons])
 Any key, button or tap restarts the 30 s timer.
@@ -52,6 +54,7 @@ from hardware.display import Presenter, set_backlight  # noqa: E402
 import icons  # noqa: E402
 import layout  # noqa: E402
 import theme  # noqa: E402
+import version  # noqa: E402
 from sources import alerts as alerts_src, mock, weather as weather_src  # noqa: E402
 from sources.trains import mta_subway  # noqa: E402
 
@@ -83,6 +86,10 @@ class State:
     toast: tuple | None = None                    # (message, hide at monotonic time)
     asleep: bool = False                          # screen blanked
     page_progress: float | None = None            # 0–1 until the next auto-advance (None = off)
+    build: object | None = None                   # version.Build this process is running (None = not a git clone)
+    update: object | None = None                  # version.UpdateStatus: is that build the latest?
+    started: datetime | None = None               # when the dashboard started
+    ip: str | None = None                         # local network address (for ssh)
 
     # convenience views used by the layout
     @property
@@ -264,7 +271,13 @@ def main():
         too_soon=sub["too_soon"],
         directions=sub["directions"],
         direction_labels=sub["direction_labels"],
+        build=version.current(),
+        started=datetime.now().astimezone(),
     )
+    state.update = version.update_status(state.build)
+    state.ip = version.local_ip()
+    print(f"running {state.build.label} ({state.build.short})" if state.build else "running a copy without git",
+          flush=True)
     if not state.location:
         zip_code = str(cfg["weather"]["zip"])
         state.location = config.KNOWN_ZIPS.get(zip_code, (0, 0, ""))[2]  # unknown zips: set once geocoded
@@ -318,6 +331,7 @@ def main():
     reported_keys = set()
 
     clock = pygame.time.Clock()
+    update_checked = time.monotonic()
     drawn = None
     page_seconds = disp["page_seconds"]       # auto-advance interval; 0 = stay put
     page_started = time.monotonic()
@@ -331,7 +345,7 @@ def main():
             state.asleep = False
             set_backlight(True)
             return
-        if action in ("overview", "forecast", "alerts"):
+        if action in ("overview", "forecast", "alerts", "system"):
             if action == "alerts" and "alerts" not in names:
                 state.toast = ("No alerts right now", time.monotonic() + 1.8)
                 return
@@ -388,15 +402,23 @@ def main():
                     act("next_page")
 
         # auto-advance: Departures → Forecast → (Alerts) → Departures …
+        # (System is only shown on request, and goes back to Departures)
         elapsed = time.monotonic() - page_started
         if page_seconds and not state.asleep and elapsed >= page_seconds:
-            state.page = (state.page + 1) % len(layout.pages(state))
+            state.page = next_auto_page(layout.pages(state), state.page)
             page_started, elapsed = time.monotonic(), 0.0
         state.page_progress = min(1.0, elapsed / page_seconds) if page_seconds else None
         if state.toast and time.monotonic() > state.toast[1]:
             state.toast = None
 
         reloaded = reloader.check()
+        if time.monotonic() - update_checked > 30:   # did the updater find something newer?
+            update_checked = time.monotonic()
+            status, ip = version.update_status(state.build), version.local_ip()
+            if (status, ip) != (state.update, state.ip):
+                with state.lock:
+                    state.update, state.ip = status, ip
+                    state.version += 1
 
         now = datetime.now().astimezone()
         # the header banner cycles through alerts (a button can also skip ahead)
@@ -441,7 +463,13 @@ def main():
     pygame.quit()
 
 
-KEY_ACTIONS = {"next_page", "prev_page", "overview", "forecast", "alerts", "next_alert",
+def next_auto_page(names: list, page: int) -> int:
+    """The page the timer moves to: like next_page, but never onto System."""
+    nxt = (page + 1) % len(names)
+    return 0 if names[nxt] == "system" else nxt
+
+
+KEY_ACTIONS = {"next_page", "prev_page", "overview", "forecast", "alerts", "system", "next_alert",
                "refresh", "sleep", "quit", "button_a", "button_b", "button_c", "button_d", "button_e"}
 MODIFIER_KEYS = {f"{side}{m}" for side in ("left", "right") for m in ("ctrl", "shift", "alt", "gui")}
 # brief on-screen confirmation for keys whose effect isn't obvious
@@ -476,7 +504,7 @@ def lookup_key(keymap: dict, key: int, mod: int):
 
 
 ACTION_LABELS = {
-    "overview": "Departures", "forecast": "Forecast", "alerts": "Alerts",
+    "overview": "Departures", "forecast": "Forecast", "alerts": "Alerts", "system": "System",
     "next_page": "Next page", "prev_page": "Previous page", "next_alert": "Next alert",
     "refresh": "Refreshing", "sleep": "Sleep",
 }

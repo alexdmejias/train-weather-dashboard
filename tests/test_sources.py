@@ -226,3 +226,36 @@ def test_too_soon_trains_split_off():
     soon, ok = layout._partition(deps, now, {"Broadway": 5})   # per station
     assert {d.station for d in soon} == {"Broadway"}
     assert layout._upcoming(deps, now, 0) == sorted(deps, key=lambda d: d.depart_at)
+
+
+def test_build_and_update_status(tmp_path):
+    import version
+    assert version.update_status(None).state == "dev"
+    b = version.Build("a" * 40, 12, None)
+    assert b.label == "Build 12" and b.short == "aaaaaaa"
+    git = tmp_path / ".git"
+    git.mkdir()
+    assert version.update_status(b, tmp_path).state == "unknown"      # updater hasn't fetched yet
+    (git / "FETCH_HEAD").write_text("a" * 40 + "\t\tbranch 'deploy' of https://github.com/x/y\n")
+    st = version.update_status(b, tmp_path)
+    assert st.state == "latest" and st.checked is not None
+    (git / "FETCH_HEAD").write_text("b" * 40 + "\t\tbranch 'deploy' of https://github.com/x/y\n")
+    assert version.update_status(b, tmp_path).state == "pending"
+    (git / "update-bad-rev").write_text("b" * 40 + "\n")
+    assert version.update_status(b, tmp_path).state == "failed"       # rolled back
+
+
+def test_current_build_reads_git():
+    import version
+    b = version.current()
+    if b is None:            # e.g. a source tarball
+        return
+    assert len(b.sha) == 40 and b.number and b.number > 0
+
+
+def test_auto_advance_skips_system_page():
+    import dashboard
+    names = ["overview", "forecast", "system"]
+    assert dashboard.next_auto_page(names, 0) == 1
+    assert dashboard.next_auto_page(names, 1) == 0          # not onto System
+    assert dashboard.next_auto_page(names, 2) == 0          # System times out back to Departures
