@@ -41,6 +41,12 @@ def test_open_meteo_parse():
     assert [h.time.hour for h in w.hourly] == [8, 9]
     assert w.hourly[1].precip_prob == 0  # None → 0
     assert w.daily[1].precip_prob == 70
+    assert w.humidity is None and w.sunrise is None   # optional fields missing → None
+    data["current"]["relative_humidity_2m"] = 64
+    data["daily"].update(uv_index_max=[3.2, 1.0], sunrise=["2026-11-09T06:33", "x"], sunset=["2026-11-09T16:37", "x"])
+    w = weather.parse(data, now=datetime(2026, 11, 9, 8, 30, tzinfo=TZ))
+    assert (w.humidity, w.uv_max, w.precip_prob) == (64, 3.2, 10)
+    assert (w.sunrise.hour, w.sunset.minute) == (6, 37)
 
 
 def _feed(now):
@@ -116,14 +122,28 @@ def test_station_names_resolve_by_proximity():
     assert set(mta_subway.resolve_stations(["Jay St-MetroTech"], jay)) == {"A41", "R29"}  # whole complex
 
 
-def test_rows_split_between_directions():
+def test_pages_draw_without_errors():
     import os
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+    pygame.display.init()
+    pygame.font.init()
     import layout
-    assert layout._allocate([5, 4], 5) == [3, 2]      # Manhattan-bound gets more
-    assert layout._allocate([1, 4], 5) == [1, 4]      # unused rows go to the other side
-    assert layout._allocate([6, 0], 5) == [5, 0]
-    assert layout._allocate([2], 5) == [2]
+    import theme
+    from dashboard import State
+    now = datetime.now().astimezone()
+    for scenario in ("normal", "evening", "night"):
+        state = State(now=now, station="Test", direction_labels={"S": "Manhattan", "N": "Queens"},
+                      departures=mock.trains(now, scenario), weather=mock.weather(now, scenario), walk_minutes=5)
+        for page in range(len(layout.pages(state))):
+            state.page = page
+            layout.draw(pygame.Surface((theme.W, theme.H)), state)
+    state.directions = ["S"]         # a single full-width column
+    state.too_soon = "hide"
+    state.weather = None             # forecast still loading
+    for page in range(2):
+        state.page = page
+        layout.draw(pygame.Surface((theme.W, theme.H)), state)
 
 
 # ── alerts ────────────────────────────────────────────────────────────────
@@ -191,3 +211,43 @@ def test_nws_alerts():
     assert got[0].body == "Minor flooding. Avoid roads."
     # severe weather outranks everything else
     assert alerts.ordered(got, now)[0].title == "Wind Warning"
+
+
+def test_too_soon_trains_split_off():
+    import os
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import layout
+    now = datetime.now().astimezone()
+    deps = mock.trains(now, "normal")
+    soon, ok = layout._partition(deps, now, 5)
+    assert soon and all(layout._minutes_until(d.depart_at, now) < 5 for d in soon)
+    assert ok and all(layout._minutes_until(d.depart_at, now) >= 5 for d in ok)
+    assert len(soon) + len(ok) == len(deps)
+    soon, ok = layout._partition(deps, now, {"Broadway": 5})   # per station
+    assert {d.station for d in soon} == {"Broadway"}
+    assert layout._upcoming(deps, now, 0) == sorted(deps, key=lambda d: d.depart_at)
+
+
+def test_build_and_update_status(tmp_path):
+    import version
+    assert version.update_status(None).state == "dev"
+    b = version.Build("a" * 40, 12, None)
+    assert b.label == "Build 12" and b.short == "aaaaaaa"
+    git = tmp_path / ".git"
+    git.mkdir()
+    assert version.update_status(b, tmp_path).state == "unknown"      # updater hasn't fetched yet
+    (git / "FETCH_HEAD").write_text("a" * 40 + "\t\tbranch 'deploy' of https://github.com/x/y\n")
+    st = version.update_status(b, tmp_path)
+    assert st.state == "latest" and st.checked is not None
+    (git / "FETCH_HEAD").write_text("b" * 40 + "\t\tbranch 'deploy' of https://github.com/x/y\n")
+    assert version.update_status(b, tmp_path).state == "pending"
+    (git / "update-bad-rev").write_text("b" * 40 + "\n")
+    assert version.update_status(b, tmp_path).state == "failed"       # rolled back
+
+
+def test_current_build_reads_git():
+    import version
+    b = version.current()
+    if b is None:            # e.g. a source tarball
+        return
+    assert len(b.sha) == 40 and b.number and b.number > 0

@@ -13,10 +13,12 @@ without the animations. Works with either:
 | Rain on the way | Evening |
 |---|---|
 | ![](docs/screenshots/overview-rain.png) | ![](docs/screenshots/overview-evening.png) |
-| **Night** | **7-day forecast** (tap to switch) |
+| **Night** | **Today in detail + next 3 days** (tap to switch) |
 | ![](docs/screenshots/overview-night.png) | ![](docs/screenshots/forecast.png) |
 | **Service & weather alerts** | **Alert details** (tap the banner) |
 | ![](docs/screenshots/overview-alerts.png) | ![](docs/screenshots/alerts.png) |
+| **Settings** (build + update status top right) | |
+| ![](docs/screenshots/settings.png) | |
 
 ## Why it's built this way
 
@@ -40,8 +42,8 @@ the moving bits are drawn on top (~24 fps on a Pi 3).
 When something is going on, a colour-coded banner takes over the top right
 (red = severe weather, amber = current problem, blue = planned work starting
 soon) and cycles through alerts every 8 s. Lines with a current problem get an
-amber dot on their badge, and active weather alerts are flagged on the weather
-card. Tap the banner for an **Alerts** page with the full details; that page
+amber dot on their badge, and active weather alerts are flagged on the Today
+card (Forecast page). Tap the banner for an **Alerts** page with the full details; that page
 only exists while there are alerts. Planned work shows up to 12 hours before it
 starts (`[alerts] upcoming_hours`).
 
@@ -124,8 +126,14 @@ its default. For example:
 ```toml
 [subway]
 directions = ["S"]                                     # Manhattan-bound only
-walk_minutes = { "Steinway St" = 7, "Broadway" = 4 }   # hide trains you can't catch
+walk_minutes = { "Steinway St" = 7, "Broadway" = 4 }   # trains you can't catch…
+too_soon = "hide"                                      # …left out ("small" = the one you'd just miss, faded)
 ```
+
+Departures show one column per direction. By default, trains leaving in
+under **7 minutes** are too soon to catch: only the one you'd just miss is
+shown, faded, at the top of its column (`too_soon = "small"`). Set
+`walk_minutes = 0` to show everything normally.
 
 Stations can be names or ids. A name used by several stations
 ("Broadway") picks the one nearest your zip. To look one up:
@@ -283,7 +291,7 @@ to `/boot/firmware/config.txt` (instead of the Elecrow lines) and reboot.
   | Button | Default action |
   |---|---|
   | A | Departures |
-  | B | 7-day forecast |
+  | B | Forecast |
   | C | Alerts (when there are any) |
   | D | Refresh now |
   | E | Sleep — screen and backlight off; any button wakes it |

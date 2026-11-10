@@ -32,10 +32,11 @@ pygame.display.set_mode((1, 1))
 import effects  # noqa: E402
 import layout  # noqa: E402
 import theme  # noqa: E402
+import version  # noqa: E402
 from dashboard import State  # noqa: E402
 from sources import mock  # noqa: E402
 
-# (scenario, page, time of day, file name)
+# (scenario, page, time of day, file name[, extra State fields])
 SHOTS = [
     ("normal", 0, (8, 42), "overview.png"),
     ("rain", 0, (8, 17), "overview-rain.png"),
@@ -45,6 +46,7 @@ SHOTS = [
     ("snow", 0, (7, 33), "overview-snow.png"),
     ("alerts", 0, (8, 17), "overview-alerts.png"),
     ("alerts", 2, (8, 17), "alerts.png"),
+    ("normal", 0, (8, 42), "settings.png", {"settings": True}),   # build + update status in the header
 ]
 
 # gallery shots per look: (scenario, page, time, file-name suffix)
@@ -61,6 +63,11 @@ def render(scenario, page, hm, out: Path, scale=1, offline=False, toast=None, st
         subway_alerts=mock.subway_alerts(now, scenario), weather_alerts=mock.weather_alerts(now, scenario),
         updated={"trains": now - timedelta(seconds=20), "weather": now - timedelta(minutes=4)},
         style=style, season=season, settings_open=settings,
+        walk_minutes=5,   # mock trains are bunched up close; 5 shows a "too soon" one per direction
+        # a fixed, made-up build so screenshots don't change with every commit
+        build=version.Build("29c57b7" + "0" * 33, 214, now - timedelta(hours=20),
+                            "Departures fill the screen; Forecast shows today in detail + 3 days"),
+        update=version.UpdateStatus("latest", "29c57b7", now - timedelta(minutes=3)),
     )
     state.page_progress = 0.4  # auto-advance countdown, part way through
     if toast:
@@ -125,8 +132,8 @@ def main():
                args.effect, args.seconds, args.settings)
     else:
         outdir = args.out or ROOT / "docs" / "screenshots"
-        for scenario, page, hm, name in SHOTS:
-            render(scenario, page, hm, outdir / name, args.scale)
+        for scenario, page, hm, name, *extra in SHOTS:
+            render(scenario, page, hm, outdir / name, args.scale, **(extra[0] if extra else {}))
 
 
 if __name__ == "__main__":

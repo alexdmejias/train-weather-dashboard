@@ -51,6 +51,13 @@ class Weather:
     daily: list[DayForecast] = field(default_factory=list)
     unit: str = "°"
     wind_unit: str = "mph"
+    # extra detail for the Today card (None = the feed didn't say)
+    humidity: int | None = None    # %
+    wind_dir: int | None = None    # degrees the wind blows FROM (0 = north)
+    uv_max: float | None = None    # today's peak UV index
+    sunrise: datetime | None = None
+    sunset: datetime | None = None
+    precip_prob: int | None = None # today's highest chance of rain/snow, %
 
 
 @dataclass

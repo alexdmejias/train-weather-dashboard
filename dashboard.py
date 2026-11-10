@@ -56,6 +56,7 @@ import layout  # noqa: E402
 import scenery  # noqa: E402
 import effects  # noqa: E402
 import theme  # noqa: E402
+import version  # noqa: E402
 from sources import alerts as alerts_src, mock, weather as weather_src  # noqa: E402
 from sources.trains import mta_subway  # noqa: E402
 
@@ -71,6 +72,7 @@ class State:
     clock24: bool = False
     max_rows: int = 5
     walk_minutes: int | dict = 0
+    too_soon: str = "small"                       # "small" or "hide": trains sooner than walk_minutes
     multi_station: bool = False
     directions: list = field(default_factory=lambda: ["S", "N"])
     direction_labels: dict = field(default_factory=dict)
@@ -86,6 +88,8 @@ class State:
     toast: tuple | None = None                    # (message, hide at monotonic time)
     asleep: bool = False                          # screen blanked
     page_progress: float | None = None            # 0–1 until the next auto-advance (None = off)
+    build: object | None = None                   # version.Build this process is running (None = not a git clone)
+    update: object | None = None                  # version.UpdateStatus: is that build the latest?
     style: str = "classic"                        # look: classic, hearth, almanac, window
     season: str = "auto"                          # palette for the cozy looks (auto = by date)
     effects: str = "on"                           # animated touches: on, subtle, off
@@ -272,8 +276,10 @@ def main():
         clock24=disp["clock"] == "24h",
         max_rows=sub["max_rows"],
         walk_minutes=sub["walk_minutes"],
+        too_soon=sub["too_soon"],
         directions=sub["directions"],
         direction_labels=sub["direction_labels"],
+        build=version.current(),
         style=disp["style"],
         season=disp["season"],
         effects=_effects_mode(cfg["effects"]["mode"]),
@@ -281,6 +287,9 @@ def main():
         special_dates=dict(cfg["effects"]["dates"]),
         page_seconds=int(disp["page_seconds"] or 0),
     )
+    state.update = version.update_status(state.build)
+    print(f"running {state.build.label} ({state.build.short})" if state.build else "running a copy without git",
+          flush=True)
     if not state.location:
         zip_code = str(cfg["weather"]["zip"])
         state.location = config.KNOWN_ZIPS.get(zip_code, (0, 0, ""))[2]  # unknown zips: set once geocoded
@@ -334,6 +343,7 @@ def main():
     reported_keys = set()
 
     clock = pygame.time.Clock()
+    update_checked = time.monotonic()
     drawn = None
     page_started = time.monotonic()
     frame = pygame.Surface((theme.W, theme.H))   # the still dashboard; effects animate on a copy
@@ -502,6 +512,13 @@ def main():
             state.toast = None
 
         reloaded = reloader.check()
+        if time.monotonic() - update_checked > 30:   # did the updater find something newer?
+            update_checked = time.monotonic()
+            status = version.update_status(state.build)
+            if status != state.update:
+                with state.lock:
+                    state.update = status
+                    state.version += 1
 
         now = datetime.now().astimezone()
         # the header banner cycles through alerts (a button can also skip ahead)
