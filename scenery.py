@@ -26,23 +26,18 @@ _cache: dict = {}
 
 def background() -> pygame.Surface:
     key = T.KEY
-    if _cache.get("key") != key:
-        _cache.clear()
-        _cache["key"] = key
-        if T.STYLE == "window":
-            _cache["bg"] = _landscape()
-        else:
-            _cache["bg"] = _plain()
-    return _cache["bg"]
+    if key not in _cache:       # one per look you've used, so switching back is instant
+        _cache[key] = _landscape() if T.STYLE == "window" else _plain()
+    return _cache[key]
 
 
 # ── hearth / almanac ──────────────────────────────────────────────────────
 
 def _gradient(top, bottom, w=T.W, h=T.H):
-    s = pygame.Surface((w, h))
+    col = pygame.Surface((1, h))
     for y in range(h):
-        pygame.draw.line(s, T.mix(top, bottom, y / h), (0, y), (w, y))
-    return s
+        col.set_at((0, y), T.mix(top, bottom, y / h))
+    return pygame.transform.scale(col, (w, h))
 
 
 def _plain():

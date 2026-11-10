@@ -373,10 +373,6 @@ def main():
         if setting == "done":
             close_settings()
             return
-        if setting == "try":
-            effects.preview(value, 20)
-            close_settings(f"Playing · {value.capitalize()}")
-            return
         if setting == "clock":
             state.clock24 = value == "24h"
         elif setting == "effects":
@@ -570,6 +566,14 @@ def main():
                     fx_error_until = time.monotonic() + 60
             presenter.present()
         fx_was_on = fx_on
+
+        # while idle, get the other looks ready so switching to them is instant
+        if not changed and time.monotonic() - page_started > 2 and not state.asleep:
+            with state.lock:
+                try:
+                    layout.warm(state)
+                except Exception as e:
+                    print(f"[warm] {type(e).__name__}: {e}", flush=True)
 
         if shot.is_set():
             pygame.image.save(presenter.canvas, "/tmp/dashboard.png")
