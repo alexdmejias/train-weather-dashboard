@@ -23,6 +23,15 @@ TO_CITY = [
     ("W", "Whitehall St-South Ferry", 6, BROADWAY, "S"),
     ("M", "Middle Village-Metropolitan Av", 8, STEINWAY, "S"),
     ("N", "Coney Island-Stillwell Av", 11, BROADWAY, "S"),
+    # further out — only on the tap-a-train list
+    ("R", "Bay Ridge-95 St", 13, STEINWAY, "S"),
+    ("W", "Whitehall St-South Ferry", 16, BROADWAY, "S"),
+    ("M", "Middle Village-Metropolitan Av", 18, STEINWAY, "S"),
+    ("N", "Coney Island-Stillwell Av", 21, BROADWAY, "S"),
+    ("R", "Bay Ridge-95 St", 23, STEINWAY, "S"),
+    ("W", "Whitehall St-South Ferry", 27, BROADWAY, "S"),
+    ("M", "Middle Village-Metropolitan Av", 29, STEINWAY, "S"),
+    ("N", "Coney Island-Stillwell Av", 32, BROADWAY, "S"),
 ]
 TO_QUEENS = [
     ("W", "Astoria-Ditmars Blvd", 3, BROADWAY, "N"),
@@ -104,6 +113,9 @@ def weather(now: datetime, scenario: str = "normal"):
         "temperature_2m_max": [base + 8 + s for s in week_shift],
         "temperature_2m_min": [base - 8 + s - (d % 3) for d, s in enumerate(week_shift)],
         "precipitation_probability_max": [80 if rain else 10, 70, 25, 0, 5, 60, 15],
+        "uv_index_max": [2.1 if rain else 4.6, 1.8, 3.9, 5.2, 4.4, 2.0, 3.5],
+        "sunrise": [f"{(now.date() + timedelta(days=d)).isoformat()}T06:{31 + d:02d}" for d in range(7)],
+        "sunset": [f"{(now.date() + timedelta(days=d)).isoformat()}T16:{38 - d:02d}" for d in range(7)],
     }
     t = temp_at(now)
     data = {
@@ -115,6 +127,8 @@ def weather(now: datetime, scenario: str = "normal"):
             "weather_code": hourly["weather_code"][0],
             "is_day": int(is_day(now)),
             "wind_speed_10m": 9,
+            "wind_direction_10m": 225,
+            "relative_humidity_2m": 88 if rain else 61,
         },
         "hourly": hourly,
         "daily": daily,

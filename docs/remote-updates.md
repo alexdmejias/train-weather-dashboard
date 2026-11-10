@@ -93,6 +93,13 @@ deploy/install.sh --auto-update installs git + the timer
   `sudo systemctl`, which Raspberry Pi OS allows without a password for the
   Imager-created user (`sync.sh` already relies on this).
 - The workflow only needs `contents: write` (to move `deploy`). No secrets.
+- **Is the screen up to date?** The bottom-left corner shows the running
+  build (`Build 214` = the number of commits, so it only goes up) with a dot:
+  green = the newest commit on `deploy`, blue = a newer one is installing,
+  amber = the newer one failed its health check and was rolled back. The
+  **Settings** page header spells it out: build, status, commit, when it was
+  built and when the updater last checked. It compares `HEAD` with `.git/FETCH_HEAD`, which `update.sh` refreshes every
+  5 min, so it makes no network requests of its own.
 
 ### Switching an existing Pi over
 

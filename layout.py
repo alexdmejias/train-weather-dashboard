@@ -52,11 +52,9 @@ def draw(screen: pygame.Surface, state) -> None:
     elif page == "alerts":
         _alerts_page(screen, body, state)
     else:
-        split = 486
-        _departures(screen, pygame.Rect(body.x, body.y, split - body.x, body.h), state)
-        wx = split + T.GAP
-        _weather(screen, pygame.Rect(wx, body.y, body.right - wx, body.h), state)
+        _departures(screen, body, state)
     _page_tabs(screen, names, state.page % len(names), getattr(state, "page_progress", None))
+    _build_tag(screen, state)
     if getattr(state, "toast", None):
         _toast(screen, state.toast[0])
 
@@ -114,7 +112,7 @@ def _header(screen, state):
     tip = _insight(state)
     if tip:
         code, is_day, msg = tip
-        label = _text(msg, "medium", 16, T.TEXT)
+        label = _text(f"{state.weather.temp:.0f}°  ·  {msg}", "medium", 16, T.TEXT)
         ico = icons.icon(code, is_day, 26)
         w = 16 + ico.get_width() + 8 + label.get_width() + 18
         r = pygame.Rect(T.W - T.PAD - w, 26, w, 42)
@@ -217,10 +215,11 @@ def _insight(state):
 # ── departures card ───────────────────────────────────────────────────────
 
 def _departures(screen, r, state):
+    """Upcoming trains, one column per direction."""
     _card(screen, r)
-    ix = r.x + 20
-    screen.blit(_tracked_fit(state.station.upper(), "semibold", 12, T.MUTED, 1.6, r.w - 140), (ix, r.y + 18))
-    _status(screen, r.right - 20, r.y + 20, state.trains_updated, state.trains_error, state.now)
+    ix = r.x + 22
+    screen.blit(_tracked_fit(state.station.upper(), "semibold", 12, T.MUTED, 1.6, r.w - 160), (ix, r.y + 18))
+    _status(screen, r.right - 22, r.y + 20, state.trains_updated, state.trains_error, state.now)
 
     top = r.y + 46
     if state.departures is None:
@@ -229,56 +228,44 @@ def _departures(screen, r, state):
         screen.blit(t, t.get_rect(center=(r.centerx, top + (r.bottom - top) // 2 - 10)))
         return
 
-    deps = _upcoming(state.departures, state.now, state.walk_minutes)
+    soon, ok = _partition(state.departures, state.now, state.walk_minutes)
+    small = getattr(state, "too_soon", "hide") == "small"
     directions = state.directions or ["S", "N"]
-    groups = [(d, [x for x in deps if x.direction == d]) for d in directions]
-    if len(groups) == 1:  # one direction: no section headers, roomier rows
-        groups[0] = (None, deps)
+    cols = len(directions)
+    head_h, row_h = 28, 48
+    per_col = max(1, min(state.max_rows, (r.bottom - 8 - top - head_h) // row_h))
+    col_w = (r.w - 16 - T.GAP * (cols - 1)) // cols
 
-    head_h = 28 if groups[0][0] else 0
-    empty_h = 34
-    room = r.bottom - 8 - top - head_h * len(groups) - empty_h * sum(1 for _, g in groups if not g)
-    row_h = 48 if head_h else 56
-    counts = _allocate([len(g) for _, g in groups], min(state.max_rows, room // row_h))
+    for c, direction in enumerate(directions):
+        x = r.x + 8 + c * (col_w + T.GAP)
+        label = state.direction_labels.get(direction, direction)
+        t = _tracked(f"TO {label.upper()}", "bold", 11, T.TEXT_SOFT, 1.4)
+        ty = top + 8 + t.get_height() // 2
+        screen.blit(t, (x + 12, top + 8))
+        pygame.draw.line(screen, T.DIVIDER, (x + 22 + t.get_width(), ty), (x + col_w - 12, ty), 1)
+        if c:
+            lx = x - T.GAP // 2
+            pygame.draw.line(screen, T.DIVIDER, (lx, top + 4), (lx, r.bottom - 12), 1)
 
-    y = top
-    for (direction, trains), n in zip(groups, counts):
-        if direction:
-            label = state.direction_labels.get(direction, direction)
-            t = _tracked(f"TO {label.upper()}", "bold", 11, T.TEXT_SOFT, 1.4)
-            screen.blit(t, (ix, y + 8))
-            lx = ix + t.get_width() + 10
-            pygame.draw.line(screen, T.DIVIDER, (lx, y + 8 + t.get_height() // 2), (r.right - 20, y + 8 + t.get_height() // 2), 1)
-            y += head_h
+        # "small": the train you'd just miss stays on top, faded; "hide": it's left out
+        missed = [d for d in soon if d.direction == direction][-1:] if small else []
+        trains = (missed + [d for d in ok if d.direction == direction])[:per_col]
+        y = top + head_h
         if not trains:
-            t = _text("No upcoming trains", "regular", 15, T.FAINT)
-            screen.blit(t, (ix, y + 6))
-            y += empty_h
+            screen.blit(_text("No upcoming trains", "regular", 15, T.FAINT), (x + 12, y + 6))
             continue
-        for i, d in enumerate(trains[:n]):
-            row = pygame.Rect(r.x + 8, y, r.w - 16, row_h - 4)
-            if i == 0:
+        for i, d in enumerate(trains):
+            row = pygame.Rect(x, y, col_w, row_h - 4)
+            if i == len(missed):            # the next train you can catch
                 screen.blit(_panel(row.w, row.h, 12, T.CARD_HI), row)
-            else:
-                pygame.draw.line(screen, T.DIVIDER, (r.x + 20, y - 2), (r.right - 20, y - 2), 1)
-            _departure_row(screen, row, d, state, compact=bool(head_h))
+            elif i:
+                pygame.draw.line(screen, T.DIVIDER, (row.x + 12, row.y - 2), (row.right - 12, row.y - 2), 1)
+            _departure_row(screen, row, d, state, compact=True, faded=d in missed)
             y += row_h
 
 
-def _allocate(sizes, total):
-    """Split ``total`` rows between groups: the first group gets ~60 %,
-    and rows a group can't use go to the others."""
-    if not sizes:
-        return []
-    if len(sizes) == 1:
-        return [min(sizes[0], total)]
-    first = min(sizes[0], -(-total * 3 // 5))
-    rest = min(sizes[1], total - first)
-    first = min(sizes[0], total - rest)
-    return [first, rest] + [0] * (len(sizes) - 2)
-
-
-def _departure_row(screen, row, d, state, compact=False):
+def _departure_row(screen, row, d, state, compact=False, faded=False):
+    """``faded``: leaves too soon to catch (greyed, no strike-through)."""
     mins = _minutes_until(d.depart_at, state.now)
     dim = d.cancelled
     bd = 30 if compact else 34          # badge diameter
@@ -296,7 +283,7 @@ def _departure_row(screen, row, d, state, compact=False):
     # destination + detail line
     tx = row.x + 12 + bd + 14
     right_w = 92
-    dest = _fit(d.destination, "semibold", dest_size, T.FAINT if dim else T.TEXT, row.right - right_w - tx)
+    dest = _fit(d.destination, "semibold", dest_size, T.FAINT if dim or faded else T.TEXT, row.right - right_w - tx)
     screen.blit(dest, (tx, row.y + (3 if compact else 6)))
 
     parts = []
@@ -314,13 +301,19 @@ def _departure_row(screen, row, d, state, compact=False):
         when = _clock(d.depart_at, state.clock24)
         parts.append((f"Arrives {when}", T.MUTED))
 
+    if faded:
+        parts = [("Too soon to make", T.FAINT)] + [(txt, T.FAINT) for txt, _ in parts]
     x, y = tx, row.y + (24 if compact else 30)
+    limit = row.right - right_w
     for j, (txt, col) in enumerate(parts):
-        if j:
-            dot = _text("·", "regular", sub_size, T.FAINT)
-            screen.blit(dot, (x + 6, y))
-            x += 6 + dot.get_width() + 6
         t = _text(txt, "medium" if col != T.MUTED else "regular", sub_size, col)
+        dot = _text("·", "regular", sub_size, T.FAINT)
+        gap = 12 + dot.get_width() if j else 0
+        if x + gap + t.get_width() > limit:   # narrow row: drop what doesn't fit
+            break
+        if j:
+            screen.blit(dot, (x + 6, y))
+        x += gap
         screen.blit(t, (x, y))
         x += t.get_width()
 
@@ -331,7 +324,7 @@ def _departure_row(screen, row, d, state, compact=False):
         screen.blit(t, (rx - t.get_width(), row.centery - t.get_height() // 2))
     else:
         unit = _text("min", "medium", 14, T.FAINT if dim else T.MUTED)
-        num = _text(str(mins), "display-semibold", 28 if compact else 30, T.FAINT if dim else T.TEXT)
+        num = _text(str(mins), "display-semibold", 28 if compact else 30, T.FAINT if dim or faded else T.TEXT)
         ux = rx - unit.get_width()
         nx = ux - 5 - num.get_width()
         ny = row.centery - num.get_height() // 2
@@ -347,7 +340,12 @@ def _troubled_lines(state) -> set:
 
 
 def _upcoming(deps, now, walk_minutes=0):
-    """Trains you can still make, soonest first.
+    """Trains you can still make, soonest first."""
+    return _partition(deps, now, walk_minutes)[1]
+
+
+def _partition(deps, now, walk_minutes=0):
+    """(too soon to make, can still make) — each soonest first, departed trains dropped.
 
     ``walk_minutes`` is a number, or a {station name: minutes} table.
     """
@@ -356,16 +354,26 @@ def _upcoming(deps, now, walk_minutes=0):
             return walk_minutes.get(d.station, 0)
         return walk_minutes
 
-    keep = [d for d in deps if d.depart_at and _minutes_until(d.depart_at, now) >= walk(d)]
-    return sorted(keep, key=lambda d: d.depart_at)
+    live = sorted((d for d in deps if d.depart_at), key=lambda d: d.depart_at)
+    soon = [d for d in live if 0 <= _minutes_until(d.depart_at, now) < walk(d)]
+    keep = [d for d in live if _minutes_until(d.depart_at, now) >= walk(d)]
+    return soon, keep
 
 
-# ── weather card ──────────────────────────────────────────────────────────
+# ── forecast page ─────────────────────────────────────────────────────────
 
-def _weather(screen, r, state):
+def _forecast_page(screen, r, state):
+    split = r.x + 500
+    _today(screen, pygame.Rect(r.x, r.y, split - r.x, r.h), state)
+    _next_days(screen, pygame.Rect(split + T.GAP, r.y, r.right - split - T.GAP, r.h), state)
+
+
+def _today(screen, r, state):
+    """Current conditions and the rest of today, in detail."""
     _card(screen, r)
-    ix = r.x + 20
-    screen.blit(_tracked((state.location or "WEATHER").upper(), "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
+    ix = r.x + 22
+    head = "TODAY" + (f"  ·  {state.location.upper()}" if state.location else "")
+    screen.blit(_tracked(head, "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
     w = state.weather
     if not w:
         msg = "Forecast offline · retrying" if state.weather_error else "Loading forecast…"
@@ -375,104 +383,144 @@ def _weather(screen, r, state):
     wa = [a for a in order_alerts(state.weather_alerts, state.now) if a.active(state.now)]
     if wa:
         _, _, accent = _level_colors(wa[0].level)
-        label = _fit(wa[0].title, "semibold", 12, accent, r.w - 130)
-        lx = r.right - 18 - label.get_width()
+        label = _fit(wa[0].title, "semibold", 12, accent, r.w - 230)
+        lx = r.right - 20 - label.get_width()
         screen.blit(label, (lx, r.y + 18))
         screen.blit(_warn_icon(14, accent), (lx - 19, r.y + 18))
-    elif state.weather_error:
-        _status(screen, r.right - 20, r.y + 20, state.weather_updated, state.weather_error, state.now, compact=True)
+    else:
+        _status(screen, r.right - 22, r.y + 20, state.weather_updated, state.weather_error, state.now, compact=True)
 
-    # current conditions
-    ico = icons.icon(w.code, w.is_day, 84)
-    screen.blit(_glow(84, T.SUN if w.is_day and icons.kind(w.code).startswith(("clear", "partly")) else T.ACCENT),
-                (ix - 30, r.y + 26))
-    screen.blit(ico, (ix - 6, r.y + 40))
-    temp = _text(f"{w.temp:.0f}", "display-light", 68, T.TEXT)
-    tx = r.right - 26 - temp.get_width()
-    screen.blit(temp, (tx, r.y + 38))
-    deg = _text("°", "display-light", 40, T.MUTED)
-    screen.blit(deg, (tx + temp.get_width() - 2, r.y + 44))
+    # now: icon, big temperature, condition + high/low
+    y0 = r.y + 40
+    screen.blit(_glow(76, T.SUN if w.is_day and icons.kind(w.code).startswith(("clear", "partly")) else T.ACCENT),
+                (ix - 30, y0 - 12))
+    screen.blit(icons.icon(w.code, w.is_day, 76), (ix - 6, y0))
+    temp = _text(f"{w.temp:.0f}", "display-light", 64, T.TEXT)
+    tx = ix + 86
+    screen.blit(temp, (tx, y0 - 2))
+    screen.blit(_text("°", "display-light", 38, T.MUTED), (tx + temp.get_width() - 2, y0 + 4))
+    cx = tx + temp.get_width() + 34
+    screen.blit(_fit(icons.condition(w.code), "heading", 19, T.TEXT, r.right - 22 - cx), (cx, y0 + 12))
+    screen.blit(_text(f"H {w.high:.0f}°   L {w.low:.0f}°", "regular", 15, T.MUTED), (cx, y0 + 40))
 
-    y = r.y + 134
-    screen.blit(_fit(icons.condition(w.code), "heading", 18, T.TEXT, r.w - 40), (ix, y))
-    y += 26
-    hl = f"H {w.high:.0f}°   L {w.low:.0f}°   Feels {w.feels_like:.0f}°"
-    screen.blit(_fit(hl, "regular", 15, T.MUTED, r.w - 40), (ix, y))
+    # details grid
+    stats = [("FEELS LIKE", f"{w.feels_like:.0f}°"),
+             ("WIND", f"{w.wind:.0f} {w.wind_unit}" + (f" {_compass(w.wind_dir)}" if w.wind_dir is not None else "")),
+             ("HUMIDITY", f"{w.humidity:.0f}%" if w.humidity is not None else "–"),
+             ("RAIN TODAY", f"{w.precip_prob}%" if w.precip_prob is not None else "–"),
+             ("UV INDEX", _uv(w.uv_max)),
+             ("DAYLIGHT", f"{_clock(w.sunrise, state.clock24)} – {_clock(w.sunset, state.clock24)}"
+              if w.sunrise and w.sunset else "–")]
+    gy = r.y + 124
+    cell_w = (r.w - 44) // 3
+    for i, (label, value) in enumerate(stats):
+        row, col = divmod(i, 3)
+        x, y = ix + col * cell_w, gy + row * 46
+        screen.blit(_tracked(label, "semibold", 10, T.FAINT, 1.2), (x, y))
+        screen.blit(_fit(value, "semibold", 17, T.TEXT_SOFT, cell_w - 12), (x, y + 15))
 
-    # hourly strip, centred in the space left below the divider
-    div = r.y + 196
-    pygame.draw.line(screen, T.DIVIDER, (ix, div), (r.right - 20, div), 1)
-    hours = w.hourly[1:5] if len(w.hourly) > 4 else w.hourly[:4]
+    # the next few hours
+    div = gy + 92
+    pygame.draw.line(screen, T.DIVIDER, (ix, div), (r.right - 22, div), 1)
+    hours = w.hourly[1:7] if len(w.hourly) > 6 else w.hourly[:6]
     if not hours:
         return
-    content_h = 124 if any(h.precip_prob >= 20 for h in hours) else 104
-    y = div + (r.bottom - div - content_h) // 2 - 14
+    y = div + 10
     col_w = (r.w - 24) / len(hours)
     for i, h in enumerate(hours):
-        cx = round(r.x + 12 + col_w * (i + 0.5))
+        hx = round(r.x + 12 + col_w * (i + 0.5))
         lab = _text(_hour_label(h.time, state.clock24), "medium", 13, T.MUTED)
-        screen.blit(lab, lab.get_rect(midtop=(cx, y + 16)))
-        hi = icons.icon(h.code, h.is_day, 42)
-        screen.blit(hi, hi.get_rect(midtop=(cx, y + 38)))
+        screen.blit(lab, lab.get_rect(midtop=(hx, y)))
+        hi = icons.icon(h.code, h.is_day, 36)
+        screen.blit(hi, hi.get_rect(midtop=(hx, y + 20)))
         tt = _text(f"{h.temp:.0f}°", "semibold", 17, T.TEXT)
-        screen.blit(tt, tt.get_rect(midtop=(cx + 3, y + 86)))
+        screen.blit(tt, tt.get_rect(midtop=(hx + 3, y + 60)))
         if h.precip_prob >= 20:
             pp = _text(f"{h.precip_prob}%", "semibold", 12, T.RAIN)
-            screen.blit(pp, pp.get_rect(midtop=(cx, y + 110)))
+            screen.blit(pp, pp.get_rect(midtop=(hx, y + 82)))
 
 
-# ── forecast page ─────────────────────────────────────────────────────────
-
-def _forecast_page(screen, r, state):
+def _next_days(screen, r, state):
+    """The next three days, compact."""
     _card(screen, r)
-    ix = r.x + 22
-    screen.blit(_tracked("7-DAY FORECAST", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
-    if state.location:
-        screen.blit(_text(state.location, "heading", 22, T.TEXT), (ix, r.y + 36))
+    ix = r.x + 20
+    screen.blit(_tracked("NEXT DAYS", "semibold", 12, T.MUTED, 1.6), (ix, r.y + 18))
     w = state.weather
-    if not w or not w.daily:
-        t = _text("Loading forecast…", "medium", 16, T.MUTED)
-        screen.blit(t, t.get_rect(center=r.center))
+    days = w.daily[1:4] if w else []
+    if not days:
         return
-
-    days = w.daily[:7]
-    lo_all = min(d.low for d in days)
-    hi_all = max(d.high for d in days)
-    span = max(1.0, hi_all - lo_all)
-
-    top = r.y + 76
+    top = r.y + 44
     row_h = (r.bottom - top - 8) // len(days)
-    bar_x0, bar_x1 = r.x + 450, r.right - 86
     for i, d in enumerate(days):
         y = top + i * row_h
         cy = y + row_h // 2
         if i:
-            pygame.draw.line(screen, T.DIVIDER, (ix, y), (r.right - 22, y), 1)
-        name = "Today" if i == 0 else d.day.strftime("%A")
-        screen.blit(_text(name, "heading", 18, T.TEXT), (ix, cy - 12))
-        ico = icons.icon(d.code, True, 32)
-        screen.blit(ico, (r.x + 170, cy - 16))
-        screen.blit(_fit(icons.condition(d.code), "regular", 15, T.MUTED, 118), (r.x + 212, cy - 9))
+            pygame.draw.line(screen, T.DIVIDER, (ix, y), (r.right - 20, y), 1)
+        name = "Tomorrow" if i == 0 else d.day.strftime("%A")
+        screen.blit(_text(name, "heading", 18, T.TEXT), (ix, cy - 30))
+        cond = _fit(icons.condition(d.code), "regular", 14, T.MUTED, r.w - 110)
+        screen.blit(cond, (ix, cy - 5))
         if d.precip_prob >= 20:
-            pp = _text(f"{d.precip_prob}%", "semibold", 14, T.RAIN)
-            screen.blit(pp, (r.x + 384 - pp.get_width(), cy - 9))
-
-        lo = _text(f"{d.low:.0f}°", "medium", 17, T.MUTED)
-        screen.blit(lo, (bar_x0 - 12 - lo.get_width(), cy - 11))
+            screen.blit(_text(f"{d.precip_prob}% chance", "semibold", 13, T.RAIN), (ix, cy + 15))
+        ico = icons.icon(d.code, True, 40)
+        screen.blit(ico, (r.right - 20 - ico.get_width(), cy - 36))
         hi = _text(f"{d.high:.0f}°", "semibold", 17, T.TEXT)
-        screen.blit(hi, (bar_x1 + 12, cy - 11))
+        lo = _text(f"{d.low:.0f}°", "medium", 15, T.MUTED)
+        screen.blit(lo, (r.right - 20 - lo.get_width(), cy + 10))
+        screen.blit(hi, (r.right - 20 - lo.get_width() - 8 - hi.get_width(), cy + 8))
 
-        # range bar: faint full track + coloured segment for this day
-        screen.blit(_panel(bar_x1 - bar_x0, 6, 3, T.CARD_HI), (bar_x0, cy - 3))
-        a = bar_x0 + (d.low - lo_all) / span * (bar_x1 - bar_x0)
-        b = bar_x0 + (d.high - lo_all) / span * (bar_x1 - bar_x0)
-        seg = _gradient_bar(max(6, round(b - a)), 6,
-                            _temp_color((d.low - lo_all) / span), _temp_color((d.high - lo_all) / span))
-        screen.blit(seg, (round(a), cy - 3))
-        if i == 0:  # current temperature marker on today's bar
-            m = bar_x0 + (min(max(w.temp, lo_all), hi_all) - lo_all) / span * (bar_x1 - bar_x0)
-            pygame.draw.circle(screen, T.CARD, (round(m), cy), 6)
-            pygame.draw.circle(screen, T.TEXT, (round(m), cy), 4)
+
+def _compass(deg) -> str:
+    return ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][round(deg / 45) % 8]
+
+
+def _uv(uv) -> str:
+    if uv is None:
+        return "–"
+    level = "Low" if uv < 3 else "Moderate" if uv < 6 else "High" if uv < 8 else "Very high"
+    return f"{uv:.0f} · {level}"
+
+
+# ── build / update status ─────────────────────────────────────────────────
+
+UPDATE_COLORS = {"latest": "GOOD", "pending": "ACCENT", "failed": "WARN"}
+
+
+def _update_color(update):
+    return getattr(T, UPDATE_COLORS.get(getattr(update, "state", ""), "FAINT"))
+
+
+def _build_tag(screen, state):
+    """Bottom-left: which build is running, with a dot that's green when it's the latest."""
+    build = getattr(state, "build", None)
+    if not build:
+        return
+    t = _text(build.label, "medium", 12, T.FAINT)
+    x, y = T.PAD + 12, T.H - 22
+    pygame.draw.circle(screen, _update_color(getattr(state, "update", None)), (T.PAD + 4, y + t.get_height() // 2), 3)
+    screen.blit(t, (x, y))
+
+
+def _build_status(screen, right, state):
+    """Settings header, right-aligned at ``right``: "● Build 214 · Up to date" over
+    "29c57b7 · built Mon 12:42 PM · checked 3m ago"."""
+    build, update = getattr(state, "build", None), getattr(state, "update", None)
+    top = (update.message if update else "Version unknown") if build else "Development copy"
+    if build:
+        top = f"{build.label}  ·  {top}"
+        bits = [build.short]
+        if build.date:
+            bits.append(f"built {_when(build.date, state)}")
+        if update and update.checked:
+            bits.append(f"checked {_ago(update.checked, state.now)}")
+        sub = "  ·  ".join(bits)
+    else:
+        sub = "not a git clone · no auto-update"
+    t1 = _text(top, "semibold", 15, T.TEXT)
+    t2 = _text(sub, "regular", 13, T.MUTED)
+    screen.blit(t1, (right - t1.get_width(), 28))
+    screen.blit(t2, (right - t2.get_width(), 50))
+    pygame.draw.circle(screen, _update_color(update), (right - t1.get_width() - 10, 28 + t1.get_height() // 2), 5)
 
 
 # ── alerts page ───────────────────────────────────────────────────────────
@@ -611,9 +659,6 @@ def _blit_rich(screen, pieces, x, y):
         x += p.get_width() + space
 
 
-def _temp_color(t):
-    return T.mix(T.TEMP_COLD, T.TEMP_MILD, t * 2) if t < 0.5 else T.mix(T.TEMP_MILD, T.TEMP_WARM, (t - 0.5) * 2)
-
 
 # ── small widgets ─────────────────────────────────────────────────────────
 
@@ -743,20 +788,6 @@ def _card(screen, r):
             _cache[key] = (_panel(r.w, r.h, radius, T.CARD, T.CARD_BORDER), 0)
     s, off = _cache[key]
     screen.blit(s, (r.x + off, r.y + off))
-
-
-def _gradient_bar(w, h, c0, c1):
-    key = ("grad", w, h, c0, c1)
-    if key not in _cache:
-        k = 3
-        strip = pygame.Surface((w * k, h * k), pygame.SRCALPHA)
-        for x in range(w * k):
-            pygame.draw.line(strip, T.mix(c0, c1, x / max(1, w * k - 1)), (x, 0), (x, h * k))
-        mask = pygame.Surface((w * k, h * k), pygame.SRCALPHA)
-        pygame.draw.rect(mask, (255, 255, 255, 255), mask.get_rect(), border_radius=h * k // 2)
-        strip.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
-        _cache[key] = pygame.transform.smoothscale(strip, (w, h))
-    return _cache[key]
 
 
 def _glow(d, color):
@@ -892,6 +923,7 @@ def _settings_page(screen, state):
     done = pygame.Rect(T.W - T.PAD - 96, 26, 96, 40)
     SETTINGS_HITS.append((done, "done", None))
     chip(done, "Done", False, 0, primary=True)
+    _build_status(screen, done.x - 24, state)
 
     body = pygame.Rect(T.PAD, 92, T.W - 2 * T.PAD, T.H - 92 - T.PAD - 6)
     _card(screen, body)

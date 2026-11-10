@@ -16,9 +16,11 @@ def fetch(latitude: float, longitude: float, units: str = "fahrenheit") -> Weath
     params = {
         "latitude": latitude,
         "longitude": longitude,
-        "current": "temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m",
+        "current": "temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m,"
+                   "wind_direction_10m,relative_humidity_2m",
         "hourly": "temperature_2m,weather_code,precipitation_probability,is_day",
-        "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+        "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,"
+                 "uv_index_max,sunrise,sunset",
         "forecast_days": 7,
         "timezone": "auto",
         "temperature_unit": "fahrenheit" if imperial else "celsius",
@@ -59,6 +61,13 @@ def parse(data: dict, now: datetime | None = None) -> Weather:
         for i, d in enumerate(daily["time"])
     ]
 
+    def today(key):   # today's value of an optional daily field
+        values = daily.get(key) or [None]
+        return values[0]
+
+    def clock(value):
+        return datetime.fromisoformat(value).replace(tzinfo=tz) if value else None
+
     units = data.get("current_units", {})
     return Weather(
         temp=cur["temperature_2m"],
@@ -72,4 +81,10 @@ def parse(data: dict, now: datetime | None = None) -> Weather:
         daily=days,
         # Open-Meteo reports mph as "mp/h"
         wind_unit=units.get("wind_speed_10m", "mph").replace("mp/h", "mph"),
+        humidity=cur.get("relative_humidity_2m"),
+        wind_dir=cur.get("wind_direction_10m"),
+        uv_max=today("uv_index_max"),
+        sunrise=clock(today("sunrise")),
+        sunset=clock(today("sunset")),
+        precip_prob=days[0].precip_prob if days else None,
     )
