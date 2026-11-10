@@ -1,7 +1,9 @@
 # Train & Weather Dashboard
 
-A glanceable NYC Subway departures + weather display for a Raspberry Pi
-Zero W and an 800×480 screen. Works with either:
+A glanceable NYC Subway departures + weather display for a **Raspberry Pi 3**
+and an 800×480 screen, with cozy seasonal looks and little animated moments
+(rain, snow, falling leaves, Christmas lights…). A Pi Zero W still runs it,
+without the animations. Works with either:
 
 - **Elecrow 5" HDMI touchscreen** — tap to switch pages, or
 - **Pimoroni HyperPixel 4.0** (rectangular, non-touch) + **Button SHIM** for input.
@@ -18,10 +20,11 @@ Zero W and an 800×480 screen. Works with either:
 
 ## Why it's built this way
 
-The original Pi Zero W (ARMv6, 512 MB) can't run a modern Chromium kiosk, so
-this is a small Python + pygame program that draws directly to the screen —
-no desktop, no browser. It uses ~40 MB of RAM, and only redraws when the
-minute ticks or new data arrives.
+A browser kiosk is heavy for a small Pi, so this is a small Python + pygame
+program that draws directly to the screen — no desktop, no browser. It uses
+~40 MB of RAM. The dashboard itself only redraws when the minute ticks or new
+data arrives; while an effect is playing, that still frame is reused and only
+the moving bits are drawn on top (~24 fps on a Pi 3).
 
 - **Subway:** the MTA's [GTFS-realtime feeds](https://www.mta.info/developers)
   — no API key. Only the feeds for lines that stop at your station are
@@ -41,6 +44,67 @@ amber dot on their badge, and active weather alerts are flagged on the weather
 card. Tap the banner for an **Alerts** page with the full details; that page
 only exists while there are alerts. Planned work shows up to 12 hours before it
 starts (`[alerts] upcoming_hours`).
+
+## Looks & seasons
+
+Besides the original cool, dark design (`classic`, the default) there are
+three warm, cozy looks meant to sit comfortably in a living room. Each has a
+palette per season, picked from the date (`season = "auto"`) or pinned:
+
+```toml
+[display]
+style = "hearth"     # "classic", "hearth", "almanac" or "window"
+season = "auto"      # or "autumn", "winter", "spring", "summer"
+```
+
+| | Autumn | Winter | Spring | Summer |
+|---|---|---|---|---|
+| **Hearth** — warm dark cards, lamplight, serif numbers | ![](docs/looks/hearth-autumn.png) | ![](docs/looks/hearth-winter.png) | ![](docs/looks/hearth-spring.png) | ![](docs/looks/hearth-summer.png) |
+| **Almanac** — light paper and ink | ![](docs/looks/almanac-autumn.png) | ![](docs/looks/almanac-winter.png) | ![](docs/looks/almanac-spring.png) | ![](docs/looks/almanac-summer.png) |
+| **Window** — frosted cards over an evening landscape | ![](docs/looks/window-autumn.png) | ![](docs/looks/window-winter.png) | ![](docs/looks/window-spring.png) | ![](docs/looks/window-summer.png) |
+
+Render them all (every page) with `python3 tools/render.py --gallery --out /tmp/looks`.
+Palettes live in [`theme.py`](theme.py), backdrops in [`scenery.py`](scenery.py);
+both hot-reload.
+
+## Weather, seasons & holidays
+
+Small animated touches play over the dashboard, picked from the live weather
+and the date:
+
+| | |
+|---|---|
+| **Weather** | rain with splashes on the cards · snow that slowly settles on top of the cards · wind gusts that blow everything sideways · fog drifting by · soft lightning flashes in a thunderstorm |
+| **Seasons** | falling leaves in autumn · blossom petals in spring · fireflies on summer nights · the odd shooting star on a clear night |
+| **Holidays** | Christmas lights and flurries all December · bats in Halloween week · fireworks at New Year's midnight and on the 4th of July · hearts on Valentine's · a greeting on the day |
+| **Your days** | confetti and your own message: `[effects] dates = { "03-14" = "Happy birthday, Sam!" }` |
+
+| Rain | Snow | Wind |
+|---|---|---|
+| ![](docs/effects/rain.png) | ![](docs/effects/snow.png) | ![](docs/effects/wind.png) |
+| **Christmas** | **Fireworks** | **Halloween** |
+| ![](docs/effects/christmas.png) | ![](docs/effects/fireworks.png) | ![](docs/effects/halloween.png) |
+
+`[effects] mode` is `"auto"` (on, except on a Pi Zero), `"on"`, `"subtle"`
+(fewer, calmer, no lightning) or `"off"`. They live in [`effects.py`](effects.py)
+(hot-reloaded). Preview any of them without waiting for the weather:
+`python3 tools/render.py --scenario normal --style hearth --effect christmas`,
+or from the settings page.
+
+## Settings page
+
+**Tap any corner of the screen three times** (or press `S`, or press the same
+Button SHIM button three times quickly) to open it:
+
+![Settings](docs/effects/settings.png)
+
+Change the look, season, effects, clock and auto-advance, or tap **Try …** to
+play any effect for 20 seconds. Choices apply immediately and are saved to
+`settings.json`, which takes priority over `config.toml` for those settings
+(delete it to go back). With a keyboard, knob or remote: next/previous move
+the highlight, Enter chooses, Esc closes. With the Button SHIM: A up, B down,
+C or D choose, E close. It closes itself after a minute untouched. Corner taps
+never switch pages, so the corners are safe to tap.
 
 ## Configuration
 
@@ -119,7 +183,7 @@ python3 dashboard.py --fullscreen              # fill the screen instead of an 8
 - The first run with a zip other than 11106 needs the network once to look up
   its coordinates (cached in `~/.cache/train-weather-dashboard/`).
 
-`layout.py`, `theme.py` and `icons.py` **hot-reload on save** — keep the
+`layout.py`, `theme.py`, `scenery.py` and `icons.py` **hot-reload on save** — keep the
 window open and tweak the design live. A layout bug shows an error screen
 instead of crashing; fix it and save again.
 
@@ -129,7 +193,7 @@ restarts the timer. The tabs along the bottom show which screen is up and how
 long until the next one. Change the interval with `[display] page_seconds`
 (`0` turns auto-advance off).
 
-Other keys: `R` refreshes data · `Q` quits.
+Other keys: `R` refreshes data · `S` opens settings · `Q` quits.
 
 ### Keys, macro pads, knobs and remotes
 
@@ -144,6 +208,7 @@ without reprogramming it. Defaults:
 | Enter, R, Play/Pause | Refresh |
 | Mute | Sleep / wake |
 | 1–5 | Same as Button SHIM A–E |
+| S | Settings |
 | Q, Esc | Quit |
 
 Combos work too — handy for macro pads that ship sending copy/paste:
@@ -166,18 +231,19 @@ python3 tools/render.py --scenario rain --page 1 --scale 2 --out /tmp/x.png
 
 ## Set up the Pi
 
-1. Flash **Raspberry Pi OS Lite (32-bit)** with Raspberry Pi Imager; set
-   Wi-Fi, hostname (`pizero`) and SSH in the Imager settings.
+1. Flash **Raspberry Pi OS Lite (64-bit)** with Raspberry Pi Imager (use the
+   32-bit one on a Pi Zero W); set Wi-Fi, hostname (`dashboard`) and SSH in
+   the Imager settings.
 2. Add your screen's settings to `/boot/firmware/config.txt` and reboot:
    [`deploy/config.txt.snippet`](deploy/config.txt.snippet) for the Elecrow
-   (touch needs a soldered GPIO header on a non-"WH" Zero W), or
+   (its resistive touch uses the GPIO header), or
    [`deploy/hyperpixel4.config.txt.snippet`](deploy/hyperpixel4.config.txt.snippet)
    for the HyperPixel (see below).
 3. Copy the project over and install:
 
    ```bash
-   rsync -az --exclude .git ./ pi@pizero.local:~/train-weather-dashboard/
-   ssh pi@pizero.local 'cd ~/train-weather-dashboard && bash deploy/install.sh'
+   rsync -az --exclude .git ./ pi@dashboard.local:~/train-weather-dashboard/
+   ssh pi@dashboard.local 'cd ~/train-weather-dashboard && bash deploy/install.sh'
    ```
 
 4. That's it — it starts with the defaults above. To customise, create
@@ -195,7 +261,7 @@ Trade-offs, alternatives and setup steps are in
 
 ## HyperPixel 4.0 + Button SHIM
 
-The HyperPixel plugs straight onto the Pi Zero's GPIO header and uses almost
+The HyperPixel plugs straight onto the Pi's GPIO header and uses almost
 every pin, including the normal I2C pins — so the Button SHIM can't sit on
 the header too. Wire it to the HyperPixel's spare 5-pin I2C header instead:
 
@@ -242,7 +308,7 @@ keys **1–5** act as buttons A–E, and `--portrait` opens a
 ## Iterate on the real screen
 
 ```bash
-PI=pi@pizero.local ./sync.sh
+PI=pi@dashboard.local ./sync.sh
 ```
 
 Pushes every save to the Pi. Layout/theme/icon changes appear on the screen
@@ -252,10 +318,10 @@ automatically.
 Grab what the Pi is showing:
 
 ```bash
-ssh pi@pizero.local 'pkill -USR1 -f "python3 .*dashboard.py"; sleep 1' && scp pi@pizero.local:/tmp/dashboard.png .
+ssh pi@dashboard.local 'pkill -USR1 -f "python3 .*dashboard.py"; sleep 1' && scp pi@dashboard.local:/tmp/dashboard.png .
 ```
 
-Logs: `ssh pi@pizero.local journalctl -u dashboard -f`
+Logs: `ssh pi@dashboard.local journalctl -u dashboard -f`
 
 ## Troubleshooting
 
@@ -295,7 +361,9 @@ next retry.
 ```
 dashboard.py        main loop: display, touch, background fetching, hot reload
 layout.py           everything drawn on screen            (hot-reloaded)
-theme.py            colours, fonts, spacing               (hot-reloaded)
+theme.py            colours, fonts, spacing, looks + seasons (hot-reloaded)
+scenery.py          seasonal backdrops                    (hot-reloaded)
+effects.py          animated weather/season/holiday touches (hot-reloaded)
 icons.py            weather icons drawn in code           (hot-reloaded)
 config.py           settings + defaults (config.toml overrides)
 sources/            Open-Meteo weather, MTA subway + alerts, NWS alerts, mock data
@@ -309,4 +377,4 @@ sync.sh             watch & push to the Pi
 config.example.toml every option, commented out
 ```
 
-Fonts: [Inter](https://github.com/rsms/inter), SIL Open Font License (see `assets/fonts/OFL.txt`).
+Fonts: [Inter](https://github.com/rsms/inter) and [Fraunces](https://github.com/undercasetype/Fraunces), SIL Open Font License (see `assets/fonts/OFL.txt`).

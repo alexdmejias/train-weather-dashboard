@@ -10,6 +10,9 @@
                                  # to landscape — use 270 if it's upside down
 # page_seconds = 30              # screens advance on their own this often (0 = never);
                                  # Space moves on immediately and restarts the timer
+# style = "classic"              # "classic", or cozy: "hearth", "almanac", "window"
+# season = "auto"                # cozy palettes: "auto" (by date), "autumn", "winter",
+                                 # "spring" or "summer"
 # If taps land in the wrong place on the Pi touchscreen (mirrored or rotated):
 # touch_swap_xy = false
 # touch_invert_x = false
@@ -54,6 +57,18 @@
 # c = "alerts"
 # d = "refresh"
 # e = "sleep"
+
+[effects]
+# mode = "auto"                  # animated rain, snow, wind, leaves, Christmas lights…:
+                                 # "auto" (on, except a Pi Zero), "on", "subtle", "off"
+# fps = 24                       # frames per second while something is moving
+# holidays = true                # Christmas, Halloween, New Year, 4th of July, Valentine's
+# dates = { "03-14" = "Happy birthday, Sam!" }   # confetti + a message on your own days
+                                 # ("MM-DD" every year, or "YYYY-MM-DD" once)
+
+# The on-screen settings page (tap any corner 3 times, or press S) saves to
+# settings.json, which wins over this file for: style, season, clock,
+# page_seconds and effects mode. Delete settings.json to go back to config.toml.
 
 [alerts]
 # subway = true                  # MTA delays, suspensions and planned work on your lines
